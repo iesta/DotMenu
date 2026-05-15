@@ -844,32 +844,35 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
 
         for color in colors {
             let hex = color.hexString
+            let isLight = color.luminance > 0.5
 
             let swatch = NSView()
             swatch.wantsLayer = true
             swatch.layer?.backgroundColor = color.cgColor
+            swatch.identifier = NSUserInterfaceItemIdentifier(hex)
 
             let label = NSTextField(labelWithString: hex)
-            label.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .medium)
-            label.alignment = .center
+            label.font = NSFont.monospacedSystemFont(ofSize: 10, weight: .regular)
+            label.alignment = .right
             label.isSelectable = false
-            label.textColor = color.luminance > 0.5 ? .black : .white
-
-            let row = NSStackView(views: [swatch, label])
-            row.orientation = .vertical
-            row.spacing = 0
-            row.alignment = .centerX
-            row.identifier = NSUserInterfaceItemIdentifier(hex)
+            label.isBezeled = false
+            label.isEditable = false
+            label.drawsBackground = false
+            label.textColor = isLight ? .black : .white
+            label.translatesAutoresizingMaskIntoConstraints = false
+            swatch.addSubview(label)
+            NSLayoutConstraint.activate([
+                label.trailingAnchor.constraint(equalTo: swatch.trailingAnchor, constant: -4),
+                label.bottomAnchor.constraint(equalTo: swatch.bottomAnchor, constant: -2),
+            ])
 
             let click = NSClickGestureRecognizer(target: self, action: #selector(pickColor(_:)))
-            row.addGestureRecognizer(click)
+            swatch.addGestureRecognizer(click)
 
-            swatch.heightAnchor.constraint(equalToConstant: 40).isActive = true
-            swatch.widthAnchor.constraint(equalToConstant: 80).isActive = true
-            label.heightAnchor.constraint(equalToConstant: 22).isActive = true
-            label.widthAnchor.constraint(equalToConstant: 80).isActive = true
+            swatch.heightAnchor.constraint(equalToConstant: 60).isActive = true
+            swatch.widthAnchor.constraint(equalToConstant: 120).isActive = true
 
-            stack.addArrangedSubview(row)
+            stack.addArrangedSubview(swatch)
         }
 
         let vc = NSViewController()
