@@ -219,6 +219,8 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
     private var rectItem: NSToolbarItem!
     private var lineItem: NSToolbarItem!
     private var undoItem: NSToolbarItem!
+    private var colorItem: NSToolbarItem!
+    private let colorWell: NSColorWell
     private weak var activeToolItem: NSToolbarItem?
 
     init(image: NSImage, fileURL: URL) {
@@ -263,6 +265,10 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
         window.title = "Capture"
         window.contentView = container
         window.isReleasedWhenClosed = false
+
+        colorWell = NSColorWell(frame: NSRect(x: 0, y: 0, width: 32, height: 24))
+        colorWell.color = overlayView.shapeColor
+        colorWell.isBordered = true
 
         super.init(window: window)
 
@@ -313,6 +319,13 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
         undoItem.action = #selector(undoShape)
         undoItem.isEnabled = false
 
+        colorWell.target = self
+        colorWell.action = #selector(colorChanged)
+
+        colorItem = NSToolbarItem(itemIdentifier: NSToolbarItem.Identifier("colorItem"))
+        colorItem.label = "Color"
+        colorItem.view = colorWell
+
         let toolbar = NSToolbar(identifier: "CaptureToolbar")
         toolbar.delegate = self
         window.toolbar = toolbar
@@ -327,11 +340,11 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
     required init?(coder: NSCoder) { nil }
 
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [copyItem.itemIdentifier, saveItem.itemIdentifier, saveAsItem.itemIdentifier, .flexibleSpace, rectItem.itemIdentifier, lineItem.itemIdentifier, undoItem.itemIdentifier]
+        [copyItem.itemIdentifier, saveItem.itemIdentifier, saveAsItem.itemIdentifier, .flexibleSpace, rectItem.itemIdentifier, lineItem.itemIdentifier, colorItem.itemIdentifier, undoItem.itemIdentifier]
     }
 
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [copyItem.itemIdentifier, saveItem.itemIdentifier, saveAsItem.itemIdentifier, .flexibleSpace, rectItem.itemIdentifier, lineItem.itemIdentifier, undoItem.itemIdentifier]
+        [copyItem.itemIdentifier, saveItem.itemIdentifier, saveAsItem.itemIdentifier, .flexibleSpace, rectItem.itemIdentifier, lineItem.itemIdentifier, colorItem.itemIdentifier, undoItem.itemIdentifier]
     }
 
     func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier identifier: NSToolbarItem.Identifier, willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
@@ -340,6 +353,7 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
         if identifier == saveAsItem.itemIdentifier { return saveAsItem }
         if identifier == rectItem.itemIdentifier { return rectItem }
         if identifier == lineItem.itemIdentifier { return lineItem }
+        if identifier == colorItem.itemIdentifier { return colorItem }
         if identifier == undoItem.itemIdentifier { return undoItem }
         return nil
     }
@@ -349,12 +363,17 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
     }
 
     func windowWillClose(_ notification: Notification) {
+        NSColorPanel.shared.orderOut(nil)
         let hasOtherWindows = NSApp.windows.contains { w in
             w != window && w.isVisible
         }
         if !hasOtherWindows {
             NSApp.setActivationPolicy(.accessory)
         }
+    }
+
+    @objc private func colorChanged(_ sender: NSColorWell) {
+        overlayView.shapeColor = sender.color
     }
 
     @objc private func beginTool(_ sender: NSToolbarItem) {
