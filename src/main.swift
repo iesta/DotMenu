@@ -122,7 +122,7 @@ final class CaptureController: NSObject {
 // MARK: - Shape model
 
 struct Shape {
-    enum Kind { case rect, line }
+    enum Kind { case rect, circle, line }
     let kind: Kind
     let start: NSPoint
     var end: NSPoint
@@ -200,6 +200,15 @@ final class DrawingOverlayView: NSView {
             path.lineWidth = s.lineWidth
             if s.fill { path.fill() }
             path.stroke()
+        case .circle:
+            let r = NSRect(
+                x: min(s.start.x, s.end.x), y: min(s.start.y, s.end.y),
+                width: abs(s.end.x - s.start.x), height: abs(s.end.y - s.start.y)
+            )
+            let path = NSBezierPath(ovalIn: r)
+            path.lineWidth = s.lineWidth
+            if s.fill { path.fill() }
+            path.stroke()
         case .line:
             let path = NSBezierPath()
             path.move(to: s.start)
@@ -221,6 +230,7 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
     private var saveItem: NSToolbarItem!
     private var saveAsItem: NSToolbarItem!
     private var rectItem: NSToolbarItem!
+    private var circleItem: NSToolbarItem!
     private var lineItem: NSToolbarItem!
     private var undoItem: NSToolbarItem!
     private var colorItem: NSToolbarItem!
@@ -325,6 +335,13 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
         lineItem.action = #selector(beginTool)
         lineItem.isEnabled = true
 
+        circleItem = NSToolbarItem(itemIdentifier: NSToolbarItem.Identifier("circleItem"))
+        circleItem.label = "Circle"
+        circleItem.image = NSImage(systemSymbolName: "circle", accessibilityDescription: "Draw circle")
+        circleItem.target = self
+        circleItem.action = #selector(beginTool)
+        circleItem.isEnabled = true
+
         undoItem = NSToolbarItem(itemIdentifier: NSToolbarItem.Identifier("undoItem"))
         undoItem.label = "Undo"
         undoItem.image = NSImage(systemSymbolName: "arrow.uturn.backward", accessibilityDescription: "Undo")
@@ -358,11 +375,11 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
     required init?(coder: NSCoder) { nil }
 
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [copyItem.itemIdentifier, saveItem.itemIdentifier, saveAsItem.itemIdentifier, .flexibleSpace, rectItem.itemIdentifier, lineItem.itemIdentifier, colorItem.itemIdentifier, fillItem.itemIdentifier, undoItem.itemIdentifier]
+        [copyItem.itemIdentifier, saveItem.itemIdentifier, saveAsItem.itemIdentifier, .flexibleSpace, rectItem.itemIdentifier, circleItem.itemIdentifier, lineItem.itemIdentifier, colorItem.itemIdentifier, fillItem.itemIdentifier, undoItem.itemIdentifier]
     }
 
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [copyItem.itemIdentifier, saveItem.itemIdentifier, saveAsItem.itemIdentifier, .flexibleSpace, rectItem.itemIdentifier, lineItem.itemIdentifier, colorItem.itemIdentifier, fillItem.itemIdentifier, undoItem.itemIdentifier]
+        [copyItem.itemIdentifier, saveItem.itemIdentifier, saveAsItem.itemIdentifier, .flexibleSpace, rectItem.itemIdentifier, circleItem.itemIdentifier, lineItem.itemIdentifier, colorItem.itemIdentifier, fillItem.itemIdentifier, undoItem.itemIdentifier]
     }
 
     func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier identifier: NSToolbarItem.Identifier, willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
@@ -370,6 +387,7 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
         if identifier == saveItem.itemIdentifier { return saveItem }
         if identifier == saveAsItem.itemIdentifier { return saveAsItem }
         if identifier == rectItem.itemIdentifier { return rectItem }
+        if identifier == circleItem.itemIdentifier { return circleItem }
         if identifier == lineItem.itemIdentifier { return lineItem }
         if identifier == colorItem.itemIdentifier { return colorItem }
         if identifier == fillItem.itemIdentifier { return fillItem }
@@ -409,6 +427,10 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
             overlayView.activeTool = .rect
             activeToolItem = rectItem
             rectItem.image = NSImage(systemSymbolName: "rectangle.fill", accessibilityDescription: "Draw rectangle")
+        } else if sender.itemIdentifier == circleItem.itemIdentifier {
+            overlayView.activeTool = .circle
+            activeToolItem = circleItem
+            circleItem.image = NSImage(systemSymbolName: "circle.fill", accessibilityDescription: "Draw circle")
         } else if sender.itemIdentifier == lineItem.itemIdentifier {
             overlayView.activeTool = .line
             activeToolItem = lineItem
@@ -420,6 +442,8 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
         if let item = activeToolItem {
             if item.itemIdentifier == rectItem.itemIdentifier {
                 rectItem.image = NSImage(systemSymbolName: "rectangle", accessibilityDescription: "Draw rectangle")
+            } else if item.itemIdentifier == circleItem.itemIdentifier {
+                circleItem.image = NSImage(systemSymbolName: "circle", accessibilityDescription: "Draw circle")
             } else if item.itemIdentifier == lineItem.itemIdentifier {
                 lineItem.image = NSImage(systemSymbolName: "line.diagonal", accessibilityDescription: "Draw line")
             }
@@ -472,6 +496,15 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
                     width: abs(end.x - start.x), height: abs(end.y - start.y)
                 )
                 let path = NSBezierPath(rect: r)
+                path.lineWidth = s.lineWidth * sx
+                if s.fill { path.fill() }
+                path.stroke()
+            case .circle:
+                let r = NSRect(
+                    x: min(start.x, end.x), y: min(start.y, end.y),
+                    width: abs(end.x - start.x), height: abs(end.y - start.y)
+                )
+                let path = NSBezierPath(ovalIn: r)
                 path.lineWidth = s.lineWidth * sx
                 if s.fill { path.fill() }
                 path.stroke()
