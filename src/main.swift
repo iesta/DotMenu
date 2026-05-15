@@ -73,7 +73,17 @@ func applicationDidFinishLaunching(_ notification: Notification) {
     func rebuildMenu() {
         let menu = NSMenu()
 
-        let captureItem = NSMenuItem(title: "Capture selection", action: #selector(captureSelection), keyEquivalent: "")
+        let keyEq: String
+        if let source = CGEventSource(stateID: .combinedSessionState),
+           let cgEvent = CGEvent(keyboardEventSource: source, virtualKey: savedHotkeyKeyCode, keyDown: true),
+           let nsEvent = NSEvent(cgEvent: cgEvent) {
+            keyEq = nsEvent.charactersIgnoringModifiers?.lowercased() ?? ""
+        } else {
+            keyEq = ""
+        }
+
+        let captureItem = NSMenuItem(title: "Capture selection", action: #selector(captureSelection), keyEquivalent: keyEq)
+        captureItem.keyEquivalentModifierMask = NSEvent.ModifierFlags(rawValue: savedHotkeyModifiers)
         captureItem.target = self
         menu.addItem(captureItem)
         menu.addItem(.separator())
@@ -85,6 +95,10 @@ func applicationDidFinishLaunching(_ notification: Notification) {
                 mi.representedObject = item
                 menu.addItem(mi)
             }
+            menu.addItem(.separator())
+            let clearItem = NSMenuItem(title: "Clear History", action: #selector(clearHistoryFromMenu), keyEquivalent: "")
+            clearItem.target = self
+            menu.addItem(clearItem)
         }
 
         let prefsItem = NSMenuItem(title: "Preferences…", action: #selector(showPreferences), keyEquivalent: "")
@@ -93,6 +107,10 @@ func applicationDidFinishLaunching(_ notification: Notification) {
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         statusItem.menu = menu
+    }
+
+    @objc private func clearHistoryFromMenu() {
+        CaptureController.clearHistory()
     }
 
     @objc private func openHistoryItem(_ sender: NSMenuItem) {
