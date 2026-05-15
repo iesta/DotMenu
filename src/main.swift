@@ -82,6 +82,11 @@ func applicationDidFinishLaunching(_ notification: Notification) {
         let close = NSMenuItem(title: "Close Window", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
         file.addItem(close)
         file.addItem(.separator())
+        let save = NSMenuItem(title: "Save", action: #selector(CaptureWindowController.saveImage), keyEquivalent: "s")
+        file.addItem(save)
+        let saveAs = NSMenuItem(title: "Save As…", action: #selector(CaptureWindowController.saveAsImage), keyEquivalent: "")
+        file.addItem(saveAs)
+        file.addItem(.separator())
         let prefs = NSMenuItem(title: "Preferences…", action: #selector(showPreferences), keyEquivalent: ",")
         prefs.target = self
         file.addItem(prefs)
@@ -91,16 +96,31 @@ func applicationDidFinishLaunching(_ notification: Notification) {
         main.addItem(fileItem)
 
         let edit = NSMenu(title: "Edit")
-        let copy = NSMenuItem(title: "Copy", action: Selector(("copy:")), keyEquivalent: "c")
+        let undo = NSMenuItem(title: "Undo", action: #selector(CaptureWindowController.undoShape), keyEquivalent: "z")
+        edit.addItem(undo)
+        edit.addItem(.separator())
+        let copy = NSMenuItem(title: "Copy", action: #selector(CaptureWindowController.copyImage), keyEquivalent: "c")
         edit.addItem(copy)
-        let selectAll = NSMenuItem(title: "Select All", action: Selector(("selectAll:")), keyEquivalent: "a")
-        edit.addItem(selectAll)
 
         let editItem = NSMenuItem(title: "Edit", action: nil, keyEquivalent: "")
         editItem.submenu = edit
         main.addItem(editItem)
 
         NSApp.mainMenu = main
+    }
+
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        guard let action = menuItem.action else { return true }
+        let captureActions: [Selector] = [
+            #selector(CaptureWindowController.copyImage),
+            #selector(CaptureWindowController.saveImage),
+            #selector(CaptureWindowController.saveAsImage),
+            #selector(CaptureWindowController.undoShape),
+        ]
+        if captureActions.contains(action) {
+            return CaptureController.shared.captureWindowControllers.contains { $0.window?.isKeyWindow == true }
+        }
+        return true
     }
 
     func rebuildMenu() {
@@ -321,7 +341,7 @@ final class CaptureController: NSObject {
         let pictures = FileManager.default.urls(for: .picturesDirectory, in: .userDomainMask)[0]
         return pictures.appendingPathComponent("DotMenu")
 }()
-    private var captureWindowControllers: [CaptureWindowController] = []
+    var captureWindowControllers: [CaptureWindowController] = []
     var onCaptureStateChange: ((Bool) -> Void)?
 
     func beginCapture() {
@@ -764,7 +784,7 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
         activeToolItem = nil
     }
 
-    @objc private func undoShape() {
+    @objc func undoShape() {
         guard !overlayView.shapes.isEmpty else { return }
         overlayView.shapes.removeLast()
         overlayView.needsDisplay = true
@@ -841,7 +861,7 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
         }
     }
 
-    @objc private func copyImage() {
+    @objc func copyImage() {
         let img = compositedImage()
         let pb = NSPasteboard.general
         pb.clearContents()
@@ -854,7 +874,7 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
         NSSound(named: "Tink")?.play()
     }
 
-    @objc private func saveImage() {
+    @objc func saveImage() {
         do {
             try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
             try savePNG(compositedImage(), to: fileURL)
@@ -862,7 +882,7 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
         showToast("Saved to ~/Pictures/DotMenu")
     }
 
-    @objc private func saveAsImage() {
+    @objc func saveAsImage() {
         let panel = NSSavePanel()
         panel.title = "Save capture as"
         panel.nameFieldStringValue = fileURL.lastPathComponent
