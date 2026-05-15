@@ -132,7 +132,7 @@ func applicationDidFinishLaunching(_ notification: Notification) {
         CaptureController.shared.beginCapture()
     }
 
-    @objc private func showPreferences() {
+    @objc func showPreferences() {
         if let wc = prefsWindowController {
             wc.window?.orderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
@@ -625,6 +625,7 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
             guard let chars = event.charactersIgnoringModifiers?.lowercased() else { return event }
             if cmd && !shift && chars == "c" { self.copyImage(); return nil }
             if cmd && !shift && chars == "s" { self.saveImage(); return nil }
+            if cmd && !shift && chars == "," { (NSApp.delegate as? AppDelegate)?.showPreferences(); return nil }
             if matchesHotkey(event: event) { CaptureController.shared.beginCapture(); return nil }
             if !cmd && chars == "r" { self.beginTool(self.rectItem); return nil }
             if !cmd && chars == "c" { self.beginTool(self.circleItem); return nil }
