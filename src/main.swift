@@ -212,16 +212,18 @@ final class CaptureController: NSObject {
         (NSApp.delegate as? AppDelegate)?.rebuildMenu()
     }
 
+    static var isClearing = false
+
     static func clearHistory() {
-        for item in history {
-            try? FileManager.default.removeItem(at: historyDir.appendingPathComponent(item.filename))
-        }
-        history.removeAll()
+        isClearing = true
         for ctrl in shared.captureWindowControllers {
             ctrl.window?.close()
         }
         shared.captureWindowControllers.removeAll()
-        rewriteMetadata()
+        history.removeAll()
+        try? FileManager.default.removeItem(at: historyDir)
+        try? FileManager.default.createDirectory(at: historyDir, withIntermediateDirectories: true)
+        isClearing = false
         (NSApp.delegate as? AppDelegate)?.rebuildMenu()
     }
 
@@ -605,9 +607,11 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
 
     func windowWillClose(_ notification: Notification) {
         NSColorPanel.shared.orderOut(nil)
-        let img = compositedImage()
-        let label = CaptureController.dateFormatter.string(from: Date())
-        CaptureController.addToHistory(image: img, label: label)
+        if !CaptureController.isClearing {
+            let img = compositedImage()
+            let label = CaptureController.dateFormatter.string(from: Date())
+            CaptureController.addToHistory(image: img, label: label)
+        }
         let hasOtherWindows = NSApp.windows.contains { w in
             w != window && w.isVisible
         }
