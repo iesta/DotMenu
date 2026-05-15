@@ -119,15 +119,92 @@ final class CaptureController: NSObject {
     }
 }
 
+// MARK: - Shape model
+
+struct Shape {
+    enum Kind { case rect, line }
+    let kind: Kind
+    let start: NSPoint
+    var end: NSPoint
+    let color: NSColor
+    let lineWidth: CGFloat
+}
+
+// MARK: - Drawing Overlay View
+
+final class DrawingOverlayView: NSView {
+    var shapes: [Shape] = []
+    var inProgress: Shape?
+    var activeTool: Shape.Kind?
+    var shapeColor: NSColor = .yellow
+    var shapeLineWidth: CGFloat = 3.0
+    var onShapeFinished: ((Shape) -> Void)?
+
+    override var isFlipped: Bool { true }
+
+    override func mouseDown(with event: NSEvent) {
+        guard let tool = activeTool else { return }
+        let pt = convert(event.locationInWindow, from: nil)
+        let s = Shape(kind: tool, start: pt, end: pt, color: shapeColor, lineWidth: shapeLineWidth)
+        inProgress = s
+        activeTool = nil
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard var s = inProgress else { return }
+        s.end = convert(event.locationInWindow, from: nil)
+        inProgress = s
+        needsDisplay = true
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        guard var s = inProgress else { return }
+        s.end = convert(event.locationInWindow, from: nil)
+        shapes.append(s)
+        inProgress = nil
+        onShapeFinished?(s)
+        needsDisplay = true
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        for s in shapes { drawShape(s) }
+        if let s = inProgress { drawShape(s) }
+    }
+
+    private func drawShape(_ s: Shape) {
+        s.color.setStroke()
+        switch s.kind {
+        case .rect:
+            let r = NSRect(
+                x: min(s.start.x, s.end.x), y: min(s.start.y, s.end.y),
+                width: abs(s.end.x - s.start.x), height: abs(s.end.y - s.start.y)
+            )
+            let path = NSBezierPath(rect: r)
+            path.lineWidth = s.lineWidth
+            path.stroke()
+        case .line:
+            let path = NSBezierPath()
+            path.move(to: s.start)
+            path.line(to: s.end)
+            path.lineWidth = s.lineWidth
+            path.stroke()
+        }
+    }
+}
+
 // MARK: - Capture Window Controller
 
 final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWindowDelegate {
     private let image: NSImage
     private let fileURL: URL
     private let toastLabel: NSTextField
+    private let overlayView: DrawingOverlayView
     private var copyItem: NSToolbarItem!
     private var saveItem: NSToolbarItem!
     private var saveAsItem: NSToolbarItem!
+    private var rectItem: NSToolbarItem!
+    private var lineItem: NSToolbarItem!
+    private var undoItem: NSToolbarItem!
 
     init(image: NSImage, fileURL: URL) {
         self.image = image
@@ -141,6 +218,15 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
 
         let imageView = NSImageView(image: image)
         imageView.imageScaling = .scaleProportionallyUpOrDown
+        imageView.frame = NSRect(origin: .zero, size: imageSize)
+        imageView.autoresizingMask = [.width, .height]
+
+        overlayView = DrawingOverlayView(frame: NSRect(origin: .zero, size: imageSize))
+        overlayView.autoresizingMask = [.width, .height]
+
+        let container = NSView(frame: NSRect(origin: .zero, size: imageSize))
+        container.addSubview(imageView)
+        container.addSubview(overlayView)
 
         toastLabel = NSTextField(labelWithString: "")
         toastLabel.alignment = .center
@@ -160,10 +246,14 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
             backing: .buffered, defer: false
         )
         window.title = "Capture"
-        window.contentView = imageView
+        window.contentView = container
         window.isReleasedWhenClosed = false
 
         super.init(window: window)
+
+        overlayView.onShapeFinished = { [weak self] _ in
+            self?.undoItem.isEnabled = true
+        }
 
         copyItem = NSToolbarItem(itemIdentifier: NSToolbarItem.Identifier("copyItem"))
         copyItem.label = "Copy"
@@ -186,12 +276,33 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
         saveAsItem.action = #selector(saveAsImage)
         saveAsItem.isEnabled = true
 
+        rectItem = NSToolbarItem(itemIdentifier: NSToolbarItem.Identifier("rectItem"))
+        rectItem.label = "Rectangle"
+        rectItem.image = NSImage(systemSymbolName: "rectangle", accessibilityDescription: "Draw rectangle")
+        rectItem.target = self
+        rectItem.action = #selector(beginTool)
+        rectItem.isEnabled = true
+
+        lineItem = NSToolbarItem(itemIdentifier: NSToolbarItem.Identifier("lineItem"))
+        lineItem.label = "Line"
+        lineItem.image = NSImage(systemSymbolName: "line.diagonal", accessibilityDescription: "Draw line")
+        lineItem.target = self
+        lineItem.action = #selector(beginTool)
+        lineItem.isEnabled = true
+
+        undoItem = NSToolbarItem(itemIdentifier: NSToolbarItem.Identifier("undoItem"))
+        undoItem.label = "Undo"
+        undoItem.image = NSImage(systemSymbolName: "arrow.uturn.backward", accessibilityDescription: "Undo")
+        undoItem.target = self
+        undoItem.action = #selector(undoShape)
+        undoItem.isEnabled = false
+
         let toolbar = NSToolbar(identifier: "CaptureToolbar")
         toolbar.delegate = self
         window.toolbar = toolbar
 
         window.delegate = self
-        imageView.addSubview(toastLabel)
+        container.addSubview(toastLabel)
         toastLabel.frame.origin.x = (imageSize.width - 200) / 2
 
         NSApp.setActivationPolicy(.regular)
@@ -200,17 +311,20 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
     required init?(coder: NSCoder) { nil }
 
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [copyItem.itemIdentifier, saveItem.itemIdentifier, saveAsItem.itemIdentifier, .flexibleSpace]
+        [copyItem.itemIdentifier, saveItem.itemIdentifier, saveAsItem.itemIdentifier, .flexibleSpace, rectItem.itemIdentifier, lineItem.itemIdentifier, undoItem.itemIdentifier]
     }
 
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [copyItem.itemIdentifier, saveItem.itemIdentifier, saveAsItem.itemIdentifier, .flexibleSpace]
+        [copyItem.itemIdentifier, saveItem.itemIdentifier, saveAsItem.itemIdentifier, .flexibleSpace, rectItem.itemIdentifier, lineItem.itemIdentifier, undoItem.itemIdentifier]
     }
 
     func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier identifier: NSToolbarItem.Identifier, willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
         if identifier == copyItem.itemIdentifier { return copyItem }
         if identifier == saveItem.itemIdentifier { return saveItem }
         if identifier == saveAsItem.itemIdentifier { return saveAsItem }
+        if identifier == rectItem.itemIdentifier { return rectItem }
+        if identifier == lineItem.itemIdentifier { return lineItem }
+        if identifier == undoItem.itemIdentifier { return undoItem }
         return nil
     }
 
@@ -227,10 +341,67 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
         }
     }
 
+    @objc private func beginTool(_ sender: NSToolbarItem) {
+        if sender.itemIdentifier == rectItem.itemIdentifier {
+            overlayView.activeTool = .rect
+        } else if sender.itemIdentifier == lineItem.itemIdentifier {
+            overlayView.activeTool = .line
+        }
+    }
+
+    @objc private func undoShape() {
+        guard !overlayView.shapes.isEmpty else { return }
+        overlayView.shapes.removeLast()
+        overlayView.needsDisplay = true
+        undoItem.isEnabled = !overlayView.shapes.isEmpty
+    }
+
+    private func compositedImage() -> NSImage {
+        let size = image.size
+        let img = NSImage(size: size)
+        img.lockFocus()
+        image.draw(in: NSRect(origin: .zero, size: size))
+        let scale = size.width / overlayView.bounds.width
+        let ctx = NSGraphicsContext.current!.cgContext
+        ctx.saveGState()
+        ctx.scaleBy(x: scale, y: scale)
+        for s in overlayView.shapes {
+            s.color.setStroke()
+            switch s.kind {
+            case .rect:
+                let r = NSRect(
+                    x: min(s.start.x, s.end.x), y: min(s.start.y, s.end.y),
+                    width: abs(s.end.x - s.start.x), height: abs(s.end.y - s.start.y)
+                )
+                let path = NSBezierPath(rect: r)
+                path.lineWidth = s.lineWidth
+                path.stroke()
+            case .line:
+                let path = NSBezierPath()
+                path.move(to: s.start)
+                path.line(to: s.end)
+                path.lineWidth = s.lineWidth
+                path.stroke()
+            }
+        }
+        ctx.restoreGState()
+        img.unlockFocus()
+        return img
+    }
+
+    private func savePNG(_ img: NSImage, to url: URL) throws {
+        if let data = img.tiffRepresentation,
+           let rep = NSBitmapImageRep(data: data),
+           let pngData = rep.representation(using: .png, properties: [:]) {
+            try pngData.write(to: url)
+        }
+    }
+
     @objc private func copyImage() {
+        let img = compositedImage()
         let pb = NSPasteboard.general
         pb.clearContents()
-        if let data = image.tiffRepresentation {
+        if let data = img.tiffRepresentation {
             let item = NSPasteboardItem()
             item.setData(data, forType: .tiff)
             pb.writeObjects([item])
@@ -241,11 +412,7 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
     @objc private func saveImage() {
         do {
             try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-            if let data = image.tiffRepresentation,
-               let rep = NSBitmapImageRep(data: data),
-               let pngData = rep.representation(using: .png, properties: [:]) {
-                try pngData.write(to: fileURL)
-            }
+            try savePNG(compositedImage(), to: fileURL)
         } catch {}
         showToast("Saved to ~/Pictures/DotMenu")
     }
@@ -258,11 +425,7 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
         panel.allowedContentTypes = [.png]
         guard panel.runModal() == .OK, let url = panel.url else { return }
         do {
-            if let data = image.tiffRepresentation,
-               let rep = NSBitmapImageRep(data: data),
-               let pngData = rep.representation(using: .png, properties: [:]) {
-                try pngData.write(to: url)
-            }
+            try savePNG(compositedImage(), to: url)
         } catch {}
         showToast("Saved")
     }
