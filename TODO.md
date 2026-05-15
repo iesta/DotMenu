@@ -1,6 +1,6 @@
 # TODO
 
-- [ ] Add "Save As…" button (open save dialog for custom location)
+- [x] Add "Save As…" button (open save dialog for custom location)
 - [ ] Add draw tool — circle
 - [ ] Add draw tool — rectangle
 - [ ] Add draw tool — arrow

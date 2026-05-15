@@ -127,6 +127,7 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
     private let toastLabel: NSTextField
     private var copyItem: NSToolbarItem!
     private var saveItem: NSToolbarItem!
+    private var saveAsItem: NSToolbarItem!
 
     init(image: NSImage, fileURL: URL) {
         self.image = image
@@ -178,6 +179,13 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
         saveItem.action = #selector(saveImage)
         saveItem.isEnabled = true
 
+        saveAsItem = NSToolbarItem(itemIdentifier: NSToolbarItem.Identifier("saveAsItem"))
+        saveAsItem.label = "Save As…"
+        saveAsItem.image = NSImage(systemSymbolName: "folder", accessibilityDescription: "Save As")
+        saveAsItem.target = self
+        saveAsItem.action = #selector(saveAsImage)
+        saveAsItem.isEnabled = true
+
         let toolbar = NSToolbar(identifier: "CaptureToolbar")
         toolbar.delegate = self
         window.toolbar = toolbar
@@ -192,16 +200,17 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
     required init?(coder: NSCoder) { nil }
 
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [copyItem.itemIdentifier, saveItem.itemIdentifier, .flexibleSpace]
+        [copyItem.itemIdentifier, saveItem.itemIdentifier, saveAsItem.itemIdentifier, .flexibleSpace]
     }
 
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [copyItem.itemIdentifier, saveItem.itemIdentifier, .flexibleSpace]
+        [copyItem.itemIdentifier, saveItem.itemIdentifier, saveAsItem.itemIdentifier, .flexibleSpace]
     }
 
     func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier identifier: NSToolbarItem.Identifier, willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
         if identifier == copyItem.itemIdentifier { return copyItem }
         if identifier == saveItem.itemIdentifier { return saveItem }
+        if identifier == saveAsItem.itemIdentifier { return saveAsItem }
         return nil
     }
 
@@ -239,6 +248,23 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
             }
         } catch {}
         showToast("Saved to ~/Pictures/DotMenu")
+    }
+
+    @objc private func saveAsImage() {
+        let panel = NSSavePanel()
+        panel.title = "Save capture as"
+        panel.nameFieldStringValue = fileURL.lastPathComponent
+        panel.canCreateDirectories = true
+        panel.allowedContentTypes = [.png]
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            if let data = image.tiffRepresentation,
+               let rep = NSBitmapImageRep(data: data),
+               let pngData = rep.representation(using: .png, properties: [:]) {
+                try pngData.write(to: url)
+            }
+        } catch {}
+        showToast("Saved")
     }
 
     private func showToast(_ message: String) {
