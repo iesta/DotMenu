@@ -135,10 +135,16 @@ struct Shape {
 final class DrawingOverlayView: NSView {
     var shapes: [Shape] = []
     var inProgress: Shape?
-    var activeTool: Shape.Kind? { didSet { window?.invalidateCursorRects(for: self) } }
+    var activeTool: Shape.Kind? {
+        didSet {
+            window?.invalidateCursorRects(for: self)
+            if activeTool == nil { NSCursor.arrow.set() }
+        }
+    }
     var shapeColor: NSColor = .yellow
     var shapeLineWidth: CGFloat = 3.0
     var onShapeFinished: ((Shape) -> Void)?
+    var onToolConsumed: (() -> Void)?
 
     override var isFlipped: Bool { true }
 
@@ -154,6 +160,8 @@ final class DrawingOverlayView: NSView {
         let s = Shape(kind: tool, start: pt, end: pt, color: shapeColor, lineWidth: shapeLineWidth)
         inProgress = s
         activeTool = nil
+        NSCursor.arrow.set()
+        onToolConsumed?()
     }
 
     override func mouseDragged(with event: NSEvent) {
@@ -211,6 +219,7 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
     private var rectItem: NSToolbarItem!
     private var lineItem: NSToolbarItem!
     private var undoItem: NSToolbarItem!
+    private weak var activeToolItem: NSToolbarItem?
 
     init(image: NSImage, fileURL: URL) {
         self.image = image
@@ -259,6 +268,10 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
 
         overlayView.onShapeFinished = { [weak self] _ in
             self?.undoItem.isEnabled = true
+        }
+
+        overlayView.onToolConsumed = { [weak self] in
+            self?.resetToolItemAppearance()
         }
 
         copyItem = NSToolbarItem(itemIdentifier: NSToolbarItem.Identifier("copyItem"))
@@ -348,11 +361,27 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
     }
 
     @objc private func beginTool(_ sender: NSToolbarItem) {
+        resetToolItemAppearance()
         if sender.itemIdentifier == rectItem.itemIdentifier {
             overlayView.activeTool = .rect
+            activeToolItem = rectItem
+            rectItem.image = NSImage(systemSymbolName: "rectangle.fill", accessibilityDescription: "Draw rectangle")
         } else if sender.itemIdentifier == lineItem.itemIdentifier {
             overlayView.activeTool = .line
+            activeToolItem = lineItem
+            lineItem.image = NSImage(systemSymbolName: "lineweight", accessibilityDescription: "Draw line")
         }
+    }
+
+    private func resetToolItemAppearance() {
+        if let item = activeToolItem {
+            if item.itemIdentifier == rectItem.itemIdentifier {
+                rectItem.image = NSImage(systemSymbolName: "rectangle", accessibilityDescription: "Draw rectangle")
+            } else if item.itemIdentifier == lineItem.itemIdentifier {
+                lineItem.image = NSImage(systemSymbolName: "line.diagonal", accessibilityDescription: "Draw line")
+            }
+        }
+        activeToolItem = nil
     }
 
     @objc private func undoShape() {
