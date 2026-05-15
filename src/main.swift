@@ -135,12 +135,18 @@ struct Shape {
 final class DrawingOverlayView: NSView {
     var shapes: [Shape] = []
     var inProgress: Shape?
-    var activeTool: Shape.Kind?
+    var activeTool: Shape.Kind? { didSet { window?.invalidateCursorRects(for: self) } }
     var shapeColor: NSColor = .yellow
     var shapeLineWidth: CGFloat = 3.0
     var onShapeFinished: ((Shape) -> Void)?
 
     override var isFlipped: Bool { true }
+
+    override func resetCursorRects() {
+        if activeTool != nil {
+            addCursorRect(bounds, cursor: .crosshair)
+        }
+    }
 
     override func mouseDown(with event: NSEvent) {
         guard let tool = activeTool else { return }
@@ -362,29 +368,29 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
         img.lockFocus()
         image.draw(in: NSRect(origin: .zero, size: size))
         let scale = size.width / overlayView.bounds.width
-        let ctx = NSGraphicsContext.current!.cgContext
-        ctx.saveGState()
-        ctx.scaleBy(x: scale, y: scale)
+        let h = size.height
         for s in overlayView.shapes {
+            let flip: (NSPoint) -> NSPoint = { NSPoint(x: $0.x, y: h - $0.y) }
+            let start = flip(s.start)
+            let end = flip(s.end)
             s.color.setStroke()
             switch s.kind {
             case .rect:
                 let r = NSRect(
-                    x: min(s.start.x, s.end.x), y: min(s.start.y, s.end.y),
-                    width: abs(s.end.x - s.start.x), height: abs(s.end.y - s.start.y)
+                    x: min(start.x, end.x), y: min(start.y, end.y),
+                    width: abs(end.x - start.x), height: abs(end.y - start.y)
                 )
                 let path = NSBezierPath(rect: r)
-                path.lineWidth = s.lineWidth
+                path.lineWidth = s.lineWidth * scale
                 path.stroke()
             case .line:
                 let path = NSBezierPath()
-                path.move(to: s.start)
-                path.line(to: s.end)
-                path.lineWidth = s.lineWidth
+                path.move(to: start)
+                path.line(to: end)
+                path.lineWidth = s.lineWidth * scale
                 path.stroke()
             }
         }
-        ctx.restoreGState()
         img.unlockFocus()
         return img
     }
