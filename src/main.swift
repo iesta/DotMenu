@@ -584,7 +584,7 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
     private var fillItem: NSToolbarItem!
     private var widthItem: NSToolbarItem!
     private var paletteItem: NSToolbarItem!
-    private var paletteWindowController: NSWindowController?
+    private let palettePopover = NSPopover()
     private let widthPopUp: NSPopUpButton
     private var keyMonitor: Any?
     private let colorWell: NSColorWell
@@ -730,10 +730,12 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
 
         paletteItem = NSToolbarItem(itemIdentifier: NSToolbarItem.Identifier("paletteItem"))
         paletteItem.label = "Palette"
-        paletteItem.image = NSImage(systemSymbolName: "paintpalette", accessibilityDescription: "Extract palette")
-        paletteItem.target = self
-        paletteItem.action = #selector(extractPalette)
-        paletteItem.isEnabled = true
+        let paletteBtn = NSButton(frame: NSRect(x: 0, y: 0, width: 28, height: 24))
+        paletteBtn.bezelStyle = .texturedRounded
+        paletteBtn.image = NSImage(systemSymbolName: "paintpalette", accessibilityDescription: "Extract palette")
+        paletteBtn.target = self
+        paletteBtn.action = #selector(extractPalette)
+        paletteItem.view = paletteBtn
 
         let toolbar = NSToolbar(identifier: "CaptureToolbar")
         toolbar.delegate = self
@@ -828,12 +830,6 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
     }
 
     @objc private func extractPalette() {
-        if let wc = paletteWindowController {
-            wc.window?.orderFront(nil)
-            NSApp.activate(ignoringOtherApps: true)
-            return
-        }
-
         let colors = PaletteExtractor.extract(from: image, count: 5)
         guard !colors.isEmpty else {
             showToast("Could not extract palette")
@@ -841,50 +837,48 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
         }
 
         let stack = NSStackView()
-        stack.orientation = .horizontal
-        stack.spacing = 6
-        stack.alignment = .centerY
-        stack.edgeInsets = NSEdgeInsets(top: 12, left: 12, bottom: 12, right: 12)
+        stack.orientation = .vertical
+        stack.spacing = 0
+        stack.alignment = .leading
+        stack.edgeInsets = NSEdgeInsets(top: 0, left: 0, bottom: 0, right: 0)
 
         for color in colors {
-            let swatch = NSView(frame: NSRect(x: 0, y: 0, width: 52, height: 52))
+            let hex = color.hexString
+
+            let swatch = NSView()
             swatch.wantsLayer = true
             swatch.layer?.backgroundColor = color.cgColor
-            swatch.layer?.cornerRadius = 6
 
-            let hex = color.hexString
             let label = NSTextField(labelWithString: hex)
             label.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .medium)
             label.alignment = .center
             label.isSelectable = false
-            label.frame = NSRect(x: 0, y: 0, width: 60, height: 16)
+            label.textColor = color.luminance > 0.5 ? .black : .white
 
-            let col = NSStackView(views: [swatch, label])
-            col.orientation = .vertical
-            col.spacing = 4
-            col.alignment = .centerX
+            let row = NSStackView(views: [swatch, label])
+            row.orientation = .vertical
+            row.spacing = 0
+            row.alignment = .centerX
+            row.identifier = NSUserInterfaceItemIdentifier(hex)
 
             let click = NSClickGestureRecognizer(target: self, action: #selector(pickColor(_:)))
-            col.addGestureRecognizer(click)
-            col.identifier = NSUserInterfaceItemIdentifier(hex)
+            row.addGestureRecognizer(click)
 
-            stack.addArrangedSubview(col)
+            swatch.heightAnchor.constraint(equalToConstant: 40).isActive = true
+            swatch.widthAnchor.constraint(equalToConstant: 80).isActive = true
+            label.heightAnchor.constraint(equalToConstant: 22).isActive = true
+            label.widthAnchor.constraint(equalToConstant: 80).isActive = true
+
+            stack.addArrangedSubview(row)
         }
 
-        let window = NSWindow(
-            contentRect: NSRect(origin: .zero, size: NSSize(width: 360, height: 110)),
-            styleMask: [.titled, .closable],
-            backing: .buffered, defer: false
-        )
-        window.title = "Palette"
-        window.contentView = stack
-        window.isReleasedWhenClosed = false
-        window.center()
-
-        let controller = NSWindowController(window: window)
-        paletteWindowController = controller
-        window.orderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
+        let vc = NSViewController()
+        vc.view = stack
+        palettePopover.contentViewController = vc
+        palettePopover.behavior = .transient
+        if let view = paletteItem.view {
+            palettePopover.show(relativeTo: view.bounds, of: view, preferredEdge: .maxY)
+        }
     }
 
     @objc private func pickColor(_ sender: NSClickGestureRecognizer) {
@@ -903,8 +897,7 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
         pb.setString(hex, forType: .string)
         showToast("Copied \(hex)")
 
-        paletteWindowController?.window?.close()
-        paletteWindowController = nil
+        palettePopover.performClose(sender)
     }
 
     @objc private func beginTool(_ sender: NSToolbarItem) {
@@ -1131,6 +1124,13 @@ extension NSColor {
         var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
         converted.getRed(&r, green: &g, blue: &b, alpha: &a)
         return String(format: "#%02X%02X%02X", Int(r * 255), Int(g * 255), Int(b * 255))
+    }
+
+    var luminance: CGFloat {
+        guard let converted = usingColorSpace(.sRGB) else { return 0.5 }
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        converted.getRed(&r, green: &g, blue: &b, alpha: &a)
+        return 0.299 * r + 0.587 * g + 0.114 * b
     }
 
     convenience init?(hexString: String) {
