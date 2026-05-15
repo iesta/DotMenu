@@ -68,6 +68,39 @@ func applicationDidFinishLaunching(_ notification: Notification) {
         registerCarbonHotkey()
         CaptureController.loadHistory()
         rebuildMenu()
+        setupMainMenu()
+    }
+
+    private func setupMainMenu() {
+        let main = NSMenu()
+
+        let file = NSMenu(title: "File")
+        let newCapture = NSMenuItem(title: "New Capture", action: #selector(captureSelection), keyEquivalent: "n")
+        newCapture.target = self
+        file.addItem(newCapture)
+        file.addItem(.separator())
+        let close = NSMenuItem(title: "Close Window", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
+        file.addItem(close)
+        file.addItem(.separator())
+        let prefs = NSMenuItem(title: "Preferences…", action: #selector(showPreferences), keyEquivalent: ",")
+        prefs.target = self
+        file.addItem(prefs)
+
+        let fileItem = NSMenuItem(title: "File", action: nil, keyEquivalent: "")
+        fileItem.submenu = file
+        main.addItem(fileItem)
+
+        let edit = NSMenu(title: "Edit")
+        let copy = NSMenuItem(title: "Copy", action: #selector(NSApplication.copy(_:)), keyEquivalent: "c")
+        edit.addItem(copy)
+        let selectAll = NSMenuItem(title: "Select All", action: #selector(NSApplication.selectAll(_:)), keyEquivalent: "a")
+        edit.addItem(selectAll)
+
+        let editItem = NSMenuItem(title: "Edit", action: nil, keyEquivalent: "")
+        editItem.submenu = edit
+        main.addItem(editItem)
+
+        NSApp.mainMenu = main
     }
 
     func rebuildMenu() {
