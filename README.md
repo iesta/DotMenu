@@ -74,3 +74,7 @@ README.md                # This file
 - **Code signing** — ad-hoc signed with `--requirements '=designated => identifier "com.example.DotMenu"'` for stable TCC tracking
 - **Screen Capture permission** — checked via `CGPreflightScreenCaptureAccess()` before each capture; denied → opens System Settings
 - **Capture engine** — uses `/usr/sbin/screencapture -i` via `Process` for the native selection overlay
+
+## TODO
+
+See [TODO.md](TODO.md) for planned features.
