@@ -142,6 +142,9 @@ func applicationDidFinishLaunching(_ notification: Notification) {
         let fullItem = NSMenuItem(title: "Capture full screen", action: #selector(captureFullScreen), keyEquivalent: "")
         fullItem.target = self
         menu.addItem(fullItem)
+        let winItem = NSMenuItem(title: "Capture foremost window", action: #selector(captureWindow), keyEquivalent: "")
+        winItem.target = self
+        menu.addItem(winItem)
         menu.addItem(.separator())
 
         if !CaptureController.history.isEmpty {
@@ -200,6 +203,20 @@ func applicationDidFinishLaunching(_ notification: Notification) {
             self?.statusItem.button?.contentTintColor = highlighted ? .systemBlue : nil
         }
         CaptureController.shared.beginFullScreenCapture()
+    }
+
+    @objc func captureWindow() {
+        if #available(macOS 14.0, *) {
+            guard CGPreflightScreenCaptureAccess() || CGRequestScreenCaptureAccess() else {
+                NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")!)
+                return
+            }
+        }
+        statusItem.button?.contentTintColor = .systemBlue
+        CaptureController.shared.onCaptureStateChange = { [weak self] highlighted in
+            self?.statusItem.button?.contentTintColor = highlighted ? .systemBlue : nil
+        }
+        CaptureController.shared.beginWindowCapture()
     }
 
     @objc func showPreferences() {
@@ -360,18 +377,48 @@ final class CaptureController: NSObject {
 }()
     var captureWindowControllers: [CaptureWindowController] = []
     var onCaptureStateChange: ((Bool) -> Void)?
+    private var currentPrefix = ""
 
     func beginCapture() {
+        currentPrefix = "sel"
         runScreencapture()
     }
 
     func beginFullScreenCapture() {
+        currentPrefix = "full"
         let tempFile = FileManager.default.temporaryDirectory
             .appendingPathComponent("dotmenu_\(UUID().uuidString).png")
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
         process.arguments = [tempFile.path]
+
+        process.terminationHandler = { [weak self] p in
+            guard p.terminationStatus == 0,
+                  let image = NSImage(contentsOf: tempFile)
+            else {
+                try? FileManager.default.removeItem(at: tempFile)
+                DispatchQueue.main.async { self?.onCaptureStateChange?(false) }
+                return
+            }
+            try? FileManager.default.removeItem(at: tempFile)
+            DispatchQueue.main.async { self?.saveAndShow(image: image) }
+        }
+        do {
+            try process.run()
+        } catch {
+            onCaptureStateChange?(false)
+        }
+    }
+
+    func beginWindowCapture() {
+        currentPrefix = "win"
+        let tempFile = FileManager.default.temporaryDirectory
+            .appendingPathComponent("dotmenu_\(UUID().uuidString).png")
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
+        process.arguments = ["-W", tempFile.path]
 
         process.terminationHandler = { [weak self] p in
             guard p.terminationStatus == 0,
@@ -422,10 +469,11 @@ final class CaptureController: NSObject {
         try? FileManager.default.createDirectory(at: capturesDir, withIntermediateDirectories: true)
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd_HHmmss"
-        let url = capturesDir.appendingPathComponent("Capture_\(formatter.string(from: Date())).png")
+        let timestamp = formatter.string(from: Date())
+        let prefix = currentPrefix
+        let url = capturesDir.appendingPathComponent("\(prefix)-Capture_\(timestamp).png")
 
-        let label = CaptureController.dateFormatter.string(from: Date())
-        CaptureController.addToHistory(image: image, label: label)
+        CaptureController.addToHistory(image: image, label: "\(prefix)-\(CaptureController.dateFormatter.string(from: Date()))")
 
         let controller = CaptureWindowController(image: image, fileURL: url)
         controller.window?.center()
@@ -637,7 +685,8 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
         self.image = image
         self.fileURL = fileURL
 
-        let maxSize = NSSize(width: 800, height: 600)
+        let screenSize = NSScreen.main?.visibleFrame.size ?? NSSize(width: 800, height: 600)
+        let maxSize = NSSize(width: screenSize.width * 0.85, height: screenSize.height * 0.85)
         let imageSize = NSSize(
             width: min(image.size.width, maxSize.width),
             height: min(image.size.height, maxSize.height)
