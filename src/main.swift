@@ -798,7 +798,7 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
 // MARK: - Preferences
 
 struct PreferencesView: View {
-    @State private var historyCount = CaptureController.history.count
+    @State private var historyCount = 0
 
     private var shortcutLabel: String {
         let mods = NSEvent.ModifierFlags(rawValue: savedHotkeyModifiers)
@@ -858,6 +858,7 @@ struct PreferencesView: View {
         }
         .padding()
         .frame(width: 380, height: 320)
+        .onAppear { historyCount = CaptureController.history.count }
     }
 }
 
