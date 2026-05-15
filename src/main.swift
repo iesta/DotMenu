@@ -246,6 +246,7 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
     private var undoItem: NSToolbarItem!
     private var colorItem: NSToolbarItem!
     private var fillItem: NSToolbarItem!
+    private var keyMonitor: Any?
     private let colorWell: NSColorWell
     private weak var activeToolItem: NSToolbarItem?
 
@@ -380,10 +381,26 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
         container.addSubview(toastLabel)
         toastLabel.frame.origin.x = (imageSize.width - 200) / 2
 
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self else { return event }
+            let cmd = event.modifierFlags.contains(.command)
+            guard let chars = event.charactersIgnoringModifiers?.lowercased() else { return event }
+            if cmd && chars == "c" { self.copyImage(); return nil }
+            if cmd && chars == "s" { self.saveImage(); return nil }
+            if !cmd && chars == "r" { self.beginTool(self.rectItem); return nil }
+            if !cmd && chars == "c" { self.beginTool(self.circleItem); return nil }
+            if !cmd && chars == "l" { self.beginTool(self.lineItem); return nil }
+            return event
+        }
+
         NSApp.setActivationPolicy(.regular)
     }
 
     required init?(coder: NSCoder) { nil }
+
+    deinit {
+        if let monitor = keyMonitor { NSEvent.removeMonitor(monitor) }
+    }
 
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
         [copyItem.itemIdentifier, saveItem.itemIdentifier, saveAsItem.itemIdentifier, .flexibleSpace, rectItem.itemIdentifier, circleItem.itemIdentifier, lineItem.itemIdentifier, colorItem.itemIdentifier, fillItem.itemIdentifier, undoItem.itemIdentifier]
