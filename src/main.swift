@@ -66,6 +66,7 @@ func applicationDidFinishLaunching(_ notification: Notification) {
 
         installCarbonEventHandler()
         registerCarbonHotkey()
+        CaptureController.loadHistory()
         rebuildMenu()
     }
 
@@ -121,7 +122,7 @@ func applicationDidFinishLaunching(_ notification: Notification) {
         let window = NSWindow(contentViewController: hosting)
         window.title = "Preferences"
         window.styleMask = [.titled, .closable]
-        window.setContentSize(NSSize(width: 380, height: 340))
+        window.setContentSize(NSSize(width: 380, height: 320))
         window.center()
         window.isReleasedWhenClosed = false
 
@@ -153,6 +154,7 @@ final class CaptureHistoryItem {
     let image: NSImage
     let label: String
     let date: Date
+    var filename: String = ""
     init(image: NSImage, label: String, date: Date = Date()) {
         self.image = image
         self.label = label
@@ -166,16 +168,67 @@ final class CaptureController: NSObject {
     static let shared = CaptureController()
     static var history: [CaptureHistoryItem] = []
 
+    private static var historyDir: URL = {
+        let pictures = FileManager.default.urls(for: .picturesDirectory, in: .userDomainMask)[0]
+        let dir = pictures.appendingPathComponent("DotMenu/.history")
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }()
+
+    private static var metadataFile: URL { historyDir.appendingPathComponent("history.json") }
+
+    static func loadHistory() {
+        history.removeAll()
+        guard let data = try? Data(contentsOf: metadataFile),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [[String: String]]
+        else { return }
+        for entry in json {
+            guard let label = entry["label"], let filename = entry["filename"] else { continue }
+            let url = historyDir.appendingPathComponent(filename)
+            guard let imgData = try? Data(contentsOf: url),
+                  let image = NSImage(data: imgData)
+            else { continue }
+            let item = CaptureHistoryItem(image: image, label: label)
+            item.filename = filename
+            history.append(item)
+        }
+    }
+
     static func addToHistory(image: NSImage, label: String) {
         let item = CaptureHistoryItem(image: image, label: label)
+        item.filename = "\(UUID().uuidString).png"
+        let url = historyDir.appendingPathComponent(item.filename)
+        if let data = image.tiffRepresentation,
+           let rep = NSBitmapImageRep(data: data),
+           let pngData = rep.representation(using: .png, properties: [:]) {
+            try? pngData.write(to: url)
+        }
         history.append(item)
-        if history.count > 10 { history.removeFirst() }
+        if history.count > 10 {
+            let removed = history.removeFirst()
+            try? FileManager.default.removeItem(at: historyDir.appendingPathComponent(removed.filename))
+        }
+        rewriteMetadata()
         (NSApp.delegate as? AppDelegate)?.rebuildMenu()
     }
 
     static func clearHistory() {
+        for item in history {
+            try? FileManager.default.removeItem(at: historyDir.appendingPathComponent(item.filename))
+        }
         history.removeAll()
+        rewriteMetadata()
         (NSApp.delegate as? AppDelegate)?.rebuildMenu()
+    }
+
+    private static func rewriteMetadata() {
+        var json: [[String: String]] = []
+        for item in history {
+            json.append(["label": item.label, "filename": item.filename])
+        }
+        if let data = try? JSONSerialization.data(withJSONObject: json) {
+            try? data.write(to: metadataFile)
+        }
     }
 
     static let dateFormatter: DateFormatter = {
@@ -411,7 +464,7 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered, defer: false
         )
-        window.title = "Capture"
+        window.title = "Capture  \(Int(image.size.width))x\(Int(image.size.height))"
         window.contentView = container
         window.isReleasedWhenClosed = false
 
@@ -548,11 +601,9 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
 
     func windowWillClose(_ notification: Notification) {
         NSColorPanel.shared.orderOut(nil)
-        if !overlayView.shapes.isEmpty {
-            let img = compositedImage()
-            let label = CaptureController.dateFormatter.string(from: Date())
-            CaptureController.addToHistory(image: img, label: label)
-        }
+        let img = compositedImage()
+        let label = CaptureController.dateFormatter.string(from: Date())
+        CaptureController.addToHistory(image: img, label: label)
         let hasOtherWindows = NSApp.windows.contains { w in
             w != window && w.isVisible
         }
@@ -726,26 +777,22 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
 // MARK: - Preferences
 
 struct PreferencesView: View {
-    @State private var isRecording = false
-    @State private var hotkeyCode = savedHotkeyKeyCode
-    @State private var hotkeyMods = savedHotkeyModifiers
-    @State private var recorderMonitor: Any?
     @State private var historyCount = CaptureController.history.count
 
     private var shortcutLabel: String {
-        let mods = NSEvent.ModifierFlags(rawValue: hotkeyMods)
+        let mods = NSEvent.ModifierFlags(rawValue: savedHotkeyModifiers)
         var parts: [String] = []
         if mods.contains(.control) { parts.append("⌃") }
         if mods.contains(.option) { parts.append("⌥") }
         if mods.contains(.shift) { parts.append("⇧") }
         if mods.contains(.command) { parts.append("⌘") }
         if let source = CGEventSource(stateID: .combinedSessionState),
-           let cgEvent = CGEvent(keyboardEventSource: source, virtualKey: hotkeyCode, keyDown: true),
+           let cgEvent = CGEvent(keyboardEventSource: source, virtualKey: savedHotkeyKeyCode, keyDown: true),
            let nsEvent = NSEvent(cgEvent: cgEvent) {
             let str = nsEvent.charactersIgnoringModifiers?.uppercased() ?? "?"
             parts.append(str)
         } else {
-            parts.append("#\(hotkeyCode)")
+            parts.append("#\(savedHotkeyKeyCode)")
         }
         return parts.joined()
     }
@@ -775,23 +822,14 @@ struct PreferencesView: View {
 
                 HStack {
                     Text("Capture shortcut:")
-                    Text(isRecording ? "Press shortcut…" : shortcutLabel)
-                        .foregroundColor(isRecording ? .red : .secondary)
-                        .frame(minWidth: 80, alignment: .leading)
+                    Text(shortcutLabel)
+                        .foregroundColor(.secondary)
                 }
 
-                HStack(spacing: 12) {
-                    if isRecording {
-                        Button("Cancel") { stopRecording() }
-                    } else {
-                        Button("Change Shortcut…") { startRecording() }
-                    }
-
-                    if historyCount > 0 {
-                        Button("Clear History (\(historyCount))") {
-                            CaptureController.clearHistory()
-                            historyCount = 0
-                        }
+                if historyCount > 0 {
+                    Button("Clear History (\(historyCount))") {
+                        CaptureController.clearHistory()
+                        historyCount = 0
                     }
                 }
             }
@@ -800,39 +838,6 @@ struct PreferencesView: View {
         .padding()
         .frame(width: 380, height: 320)
     }
-
-    private func startRecording() {
-        isRecording = true
-        let holder = MonitorHolder()
-        let monitor = NSEvent.addLocalMonitorForEvents(matching: NSEvent.EventTypeMask.keyDown) { (event: NSEvent) -> NSEvent? in
-            var mods = event.modifierFlags
-            mods.remove(NSEvent.ModifierFlags.capsLock)
-            mods.remove(NSEvent.ModifierFlags.numericPad)
-            mods.remove(NSEvent.ModifierFlags.function)
-            savedHotkeyKeyCode = event.keyCode
-            savedHotkeyModifiers = mods.rawValue
-            registerCarbonHotkey()
-            if let m = holder.monitor { NSEvent.removeMonitor(m) }
-            DispatchQueue.main.async {
-                self.hotkeyCode = savedHotkeyKeyCode
-                self.hotkeyMods = savedHotkeyModifiers
-                self.isRecording = false
-            }
-            return nil
-        }
-        holder.monitor = monitor
-        recorderMonitor = monitor
-    }
-
-    private func stopRecording() {
-        isRecording = false
-        if let m = recorderMonitor { NSEvent.removeMonitor(m) }
-        recorderMonitor = nil
-    }
-}
-
-class MonitorHolder {
-    var monitor: Any?
 }
 
 let app = NSApplication.shared
