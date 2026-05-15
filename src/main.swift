@@ -505,6 +505,58 @@ final class DrawingOverlayView: NSView {
 
 // MARK: - Capture Window Controller
 
+final class PaletteExtractor {
+    static func extract(from image: NSImage, count: Int = 5) -> [NSColor] {
+        let maxDim: CGFloat = 150
+        let w = min(image.size.width, maxDim)
+        let h = min(image.size.height, maxDim)
+        let small = NSImage(size: NSSize(width: w, height: h))
+        small.lockFocus()
+        image.draw(in: NSRect(origin: .zero, size: NSSize(width: w, height: h)))
+        small.unlockFocus()
+
+        guard let rep = small.representations.first as? NSBitmapImageRep,
+              let pixels = rep.bitmapData
+        else { return [] }
+
+        let bw = Int(rep.pixelsWide), bh = Int(rep.pixelsHigh)
+        var points: [(r: Float, g: Float, b: Float)] = []
+        for y in 0..<bh {
+            for x in 0..<bw {
+                let offset = (y * bw + x) * 4
+                points.append((r: Float(pixels[offset]), g: Float(pixels[offset+1]), b: Float(pixels[offset+2])))
+            }
+        }
+        guard !points.isEmpty else { return [] }
+
+        // K-Means with K=count
+        let k = min(count, points.count)
+        var centroids: [(r: Float, g: Float, b: Float)] = (0..<k).map { i in
+            let idx = i * points.count / k
+            return points[idx]
+        }
+
+        for _ in 0..<10 {
+            var sums: [(r: Float, g: Float, b: Float, count: Int)] = Array(repeating: (0,0,0,0), count: k)
+            for p in points {
+                var best = Float.greatestFiniteMagnitude
+                var bestIdx = 0
+                for (ci, c) in centroids.enumerated() {
+                    let d = (p.r-c.r)*(p.r-c.r) + (p.g-c.g)*(p.g-c.g) + (p.b-c.b)*(p.b-c.b)
+                    if d < best { best = d; bestIdx = ci }
+                }
+                sums[bestIdx].r += p.r; sums[bestIdx].g += p.g; sums[bestIdx].b += p.b
+                sums[bestIdx].count += 1
+            }
+            for i in 0..<k where sums[i].count > 0 {
+                centroids[i] = (sums[i].r / Float(sums[i].count), sums[i].g / Float(sums[i].count), sums[i].b / Float(sums[i].count))
+            }
+        }
+
+        return centroids.map { NSColor(red: CGFloat($0.r)/255, green: CGFloat($0.g)/255, blue: CGFloat($0.b)/255, alpha: 1) }
+    }
+}
+
 final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWindowDelegate {
     private let image: NSImage
     private let fileURL: URL
@@ -520,6 +572,8 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
     private var colorItem: NSToolbarItem!
     private var fillItem: NSToolbarItem!
     private var widthItem: NSToolbarItem!
+    private var paletteItem: NSToolbarItem!
+    private let palettePopover = NSPopover()
     private let widthPopUp: NSPopUpButton
     private var keyMonitor: Any?
     private let colorWell: NSColorWell
@@ -663,6 +717,13 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
         widthItem.label = "Width"
         widthItem.view = widthPopUp
 
+        paletteItem = NSToolbarItem(itemIdentifier: NSToolbarItem.Identifier("paletteItem"))
+        paletteItem.label = "Palette"
+        paletteItem.image = NSImage(systemSymbolName: "paintpalette", accessibilityDescription: "Extract palette")
+        paletteItem.target = self
+        paletteItem.action = #selector(extractPalette)
+        paletteItem.isEnabled = true
+
         let toolbar = NSToolbar(identifier: "CaptureToolbar")
         toolbar.delegate = self
         window.toolbar = toolbar
@@ -697,11 +758,11 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
     }
 
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [copyItem.itemIdentifier, saveItem.itemIdentifier, saveAsItem.itemIdentifier, .flexibleSpace, rectItem.itemIdentifier, circleItem.itemIdentifier, lineItem.itemIdentifier, colorItem.itemIdentifier, fillItem.itemIdentifier, widthItem.itemIdentifier, undoItem.itemIdentifier]
+        [copyItem.itemIdentifier, saveItem.itemIdentifier, saveAsItem.itemIdentifier, .flexibleSpace, rectItem.itemIdentifier, circleItem.itemIdentifier, lineItem.itemIdentifier, colorItem.itemIdentifier, fillItem.itemIdentifier, widthItem.itemIdentifier, paletteItem.itemIdentifier, undoItem.itemIdentifier]
     }
 
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [copyItem.itemIdentifier, saveItem.itemIdentifier, saveAsItem.itemIdentifier, .flexibleSpace, rectItem.itemIdentifier, circleItem.itemIdentifier, lineItem.itemIdentifier, colorItem.itemIdentifier, fillItem.itemIdentifier, widthItem.itemIdentifier, undoItem.itemIdentifier]
+        [copyItem.itemIdentifier, saveItem.itemIdentifier, saveAsItem.itemIdentifier, .flexibleSpace, rectItem.itemIdentifier, circleItem.itemIdentifier, lineItem.itemIdentifier, colorItem.itemIdentifier, fillItem.itemIdentifier, widthItem.itemIdentifier, paletteItem.itemIdentifier, undoItem.itemIdentifier]
     }
 
     func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier identifier: NSToolbarItem.Identifier, willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
@@ -714,6 +775,7 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
         if identifier == colorItem.itemIdentifier { return colorItem }
         if identifier == fillItem.itemIdentifier { return fillItem }
         if identifier == widthItem.itemIdentifier { return widthItem }
+        if identifier == paletteItem.itemIdentifier { return paletteItem }
         if identifier == undoItem.itemIdentifier { return undoItem }
         return nil
     }
@@ -752,6 +814,57 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
         guard let title = sender.selectedItem?.title, let w = Float(title) else { return }
         overlayView.shapeLineWidth = CGFloat(w)
         UserDefaults.standard.set(Int(w), forKey: "lineWidth")
+    }
+
+    @objc private func extractPalette() {
+        let colors = PaletteExtractor.extract(from: image, count: 5)
+        guard !colors.isEmpty else { return }
+
+        let stack = NSStackView()
+        stack.orientation = .horizontal
+        stack.spacing = 6
+        stack.alignment = .centerY
+        stack.edgeInsets = NSEdgeInsets(top: 12, left: 12, bottom: 12, right: 12)
+
+        for color in colors {
+            let swatch = NSView(frame: NSRect(x: 0, y: 0, width: 52, height: 52))
+            swatch.wantsLayer = true
+            swatch.layer?.backgroundColor = color.cgColor
+            swatch.layer?.cornerRadius = 6
+
+            let hex = color.hexString
+            let label = NSTextField(labelWithString: hex)
+            label.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .medium)
+            label.alignment = .center
+            label.isSelectable = false
+            label.frame = NSRect(x: 0, y: 0, width: 60, height: 16)
+
+            let col = NSStackView(views: [swatch, label])
+            col.orientation = .vertical
+            col.spacing = 4
+            col.alignment = .centerX
+
+            let click = NSClickGestureRecognizer(target: self, action: #selector(copyHex(_:)))
+            col.addGestureRecognizer(click)
+            col.identifier = NSUserInterfaceItemIdentifier(hex)
+
+            stack.addArrangedSubview(col)
+        }
+
+        let vc = NSViewController()
+        vc.view = stack
+        palettePopover.contentViewController = vc
+        palettePopover.behavior = .transient
+        palettePopover.show(relativeTo: paletteItem.view?.bounds ?? .zero, of: paletteItem.view!, preferredEdge: .maxY)
+    }
+
+    @objc private func copyHex(_ sender: NSClickGestureRecognizer) {
+        guard let id = sender.view?.identifier?.rawValue else { return }
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.setString(id, forType: .string)
+        showToast("Copied \(id)")
+        palettePopover.performClose(sender)
     }
 
     @objc private func beginTool(_ sender: NSToolbarItem) {
@@ -969,6 +1082,15 @@ struct PreferencesView: View {
         .padding()
         .frame(width: 380, height: 320)
         .onAppear { historyCount = CaptureController.history.count }
+    }
+}
+
+extension NSColor {
+    var hexString: String {
+        guard let converted = usingColorSpace(.sRGB) else { return "#000000" }
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        converted.getRed(&r, green: &g, blue: &b, alpha: &a)
+        return String(format: "#%02X%02X%02X", Int(r * 255), Int(g * 255), Int(b * 255))
     }
 }
 
