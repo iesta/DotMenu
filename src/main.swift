@@ -125,6 +125,10 @@ func applicationDidFinishLaunching(_ notification: Notification) {
                 return
             }
         }
+        statusItem.button?.contentTintColor = .systemBlue
+        CaptureController.shared.onCaptureStateChange = { [weak self] highlighted in
+            self?.statusItem.button?.contentTintColor = highlighted ? .systemBlue : nil
+        }
         CaptureController.shared.beginCapture()
     }
 
@@ -285,6 +289,7 @@ final class CaptureController: NSObject {
         return pictures.appendingPathComponent("DotMenu")
 }()
     private var captureWindowControllers: [CaptureWindowController] = []
+    var onCaptureStateChange: ((Bool) -> Void)?
 
     func beginCapture() {
         runScreencapture()
@@ -298,18 +303,22 @@ final class CaptureController: NSObject {
         process.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
         process.arguments = ["-i", tempFile.path]
 
+        process.terminationHandler = { [weak self] p in
+            guard p.terminationStatus == 0,
+                  let image = NSImage(contentsOf: tempFile)
+            else {
+                try? FileManager.default.removeItem(at: tempFile)
+                DispatchQueue.main.async { self?.onCaptureStateChange?(false) }
+                return
+            }
+            try? FileManager.default.removeItem(at: tempFile)
+            DispatchQueue.main.async { self?.saveAndShow(image: image) }
+        }
         try? process.run()
-        process.waitUntilExit()
-
-        guard process.terminationStatus == 0,
-              let image = NSImage(contentsOf: tempFile)
-        else { try? FileManager.default.removeItem(at: tempFile); return }
-
-        try? FileManager.default.removeItem(at: tempFile)
-        saveAndShow(image: image)
     }
 
     private func saveAndShow(image: NSImage) {
+        onCaptureStateChange?(false)
         try? FileManager.default.createDirectory(at: capturesDir, withIntermediateDirectories: true)
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd_HHmmss"
