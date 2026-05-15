@@ -151,7 +151,7 @@ func applicationDidFinishLaunching(_ notification: Notification) {
 // MARK: - Capture History
 
 final class CaptureHistoryItem {
-    let image: NSImage
+    var image: NSImage
     let label: String
     let date: Date
     var filename: String = ""
@@ -210,6 +210,17 @@ final class CaptureController: NSObject {
         }
         rewriteMetadata()
         (NSApp.delegate as? AppDelegate)?.rebuildMenu()
+    }
+
+    static func updateLastHistory(image newImage: NSImage) {
+        guard let item = history.last else { return }
+        let url = historyDir.appendingPathComponent(item.filename)
+        item.image = newImage
+        if let data = newImage.tiffRepresentation,
+           let rep = NSBitmapImageRep(data: data),
+           let pngData = rep.representation(using: .png, properties: [:]) {
+            try? pngData.write(to: url)
+        }
     }
 
     static var isClearing = false
@@ -286,6 +297,9 @@ final class CaptureController: NSObject {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd_HHmmss"
         let url = capturesDir.appendingPathComponent("Capture_\(formatter.string(from: Date())).png")
+
+        let label = CaptureController.dateFormatter.string(from: Date())
+        CaptureController.addToHistory(image: image, label: label)
 
         let controller = CaptureWindowController(image: image, fileURL: url)
         controller.window?.center()
@@ -607,10 +621,9 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
 
     func windowWillClose(_ notification: Notification) {
         NSColorPanel.shared.orderOut(nil)
-        if !CaptureController.isClearing {
+        if !CaptureController.isClearing && !overlayView.shapes.isEmpty {
             let img = compositedImage()
-            let label = CaptureController.dateFormatter.string(from: Date())
-            CaptureController.addToHistory(image: img, label: label)
+            CaptureController.updateLastHistory(image: img)
         }
         let hasOtherWindows = NSApp.windows.contains { w in
             w != window && w.isVisible
