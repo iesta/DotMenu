@@ -240,6 +240,10 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
 
         overlayView = DrawingOverlayView(frame: NSRect(origin: .zero, size: imageSize))
         overlayView.autoresizingMask = [.width, .height]
+        if let data = UserDefaults.standard.data(forKey: "drawingColor"),
+           let color = try? NSKeyedUnarchiver.unarchivedObject(ofClass: NSColor.self, from: data) {
+            overlayView.shapeColor = color
+        }
 
         let container = NSView(frame: NSRect(origin: .zero, size: imageSize))
         container.addSubview(imageView)
@@ -374,6 +378,9 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
 
     @objc private func colorChanged(_ sender: NSColorWell) {
         overlayView.shapeColor = sender.color
+        if let data = try? NSKeyedArchiver.archivedData(withRootObject: sender.color, requiringSecureCoding: false) {
+            UserDefaults.standard.set(data, forKey: "drawingColor")
+        }
     }
 
     @objc private func beginTool(_ sender: NSToolbarItem) {
