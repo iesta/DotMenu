@@ -128,6 +128,7 @@ struct Shape {
     var end: NSPoint
     let color: NSColor
     let lineWidth: CGFloat
+    let fill: Bool
 }
 
 // MARK: - Drawing Overlay View
@@ -142,6 +143,7 @@ final class DrawingOverlayView: NSView {
         }
     }
     var shapeColor: NSColor = .yellow
+    var shapeFill: Bool = false
     var shapeLineWidth: CGFloat = 3.0
     var onShapeFinished: ((Shape) -> Void)?
     var onToolConsumed: (() -> Void)?
@@ -157,7 +159,7 @@ final class DrawingOverlayView: NSView {
     override func mouseDown(with event: NSEvent) {
         guard let tool = activeTool else { return }
         let pt = convert(event.locationInWindow, from: nil)
-        let s = Shape(kind: tool, start: pt, end: pt, color: shapeColor, lineWidth: shapeLineWidth)
+        let s = Shape(kind: tool, start: pt, end: pt, color: shapeColor, lineWidth: shapeLineWidth, fill: shapeFill)
         inProgress = s
         activeTool = nil
         NSCursor.arrow.set()
@@ -187,6 +189,7 @@ final class DrawingOverlayView: NSView {
 
     private func drawShape(_ s: Shape) {
         s.color.setStroke()
+        if s.fill { s.color.setFill() }
         switch s.kind {
         case .rect:
             let r = NSRect(
@@ -195,6 +198,7 @@ final class DrawingOverlayView: NSView {
             )
             let path = NSBezierPath(rect: r)
             path.lineWidth = s.lineWidth
+            if s.fill { path.fill() }
             path.stroke()
         case .line:
             let path = NSBezierPath()
@@ -220,6 +224,7 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
     private var lineItem: NSToolbarItem!
     private var undoItem: NSToolbarItem!
     private var colorItem: NSToolbarItem!
+    private var fillItem: NSToolbarItem!
     private let colorWell: NSColorWell
     private weak var activeToolItem: NSToolbarItem?
 
@@ -244,6 +249,7 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
            let color = try? NSKeyedUnarchiver.unarchivedObject(ofClass: NSColor.self, from: data) {
             overlayView.shapeColor = color
         }
+        overlayView.shapeFill = UserDefaults.standard.bool(forKey: "drawingFill")
 
         let container = NSView(frame: NSRect(origin: .zero, size: imageSize))
         container.addSubview(imageView)
@@ -273,6 +279,9 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
         colorWell = NSColorWell(frame: NSRect(x: 0, y: 0, width: 32, height: 24))
         colorWell.color = overlayView.shapeColor
         colorWell.isBordered = true
+
+        let fillBtn = NSButton(checkboxWithTitle: "Fill", target: nil, action: nil)
+        fillBtn.state = overlayView.shapeFill ? .on : .off
 
         super.init(window: window)
 
@@ -330,6 +339,11 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
         colorItem.label = "Color"
         colorItem.view = colorWell
 
+        fillBtn.target = self
+        fillBtn.action = #selector(fillChanged)
+        fillItem = NSToolbarItem(itemIdentifier: NSToolbarItem.Identifier("fillItem"))
+        fillItem.view = fillBtn
+
         let toolbar = NSToolbar(identifier: "CaptureToolbar")
         toolbar.delegate = self
         window.toolbar = toolbar
@@ -344,11 +358,11 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
     required init?(coder: NSCoder) { nil }
 
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [copyItem.itemIdentifier, saveItem.itemIdentifier, saveAsItem.itemIdentifier, .flexibleSpace, rectItem.itemIdentifier, lineItem.itemIdentifier, colorItem.itemIdentifier, undoItem.itemIdentifier]
+        [copyItem.itemIdentifier, saveItem.itemIdentifier, saveAsItem.itemIdentifier, .flexibleSpace, rectItem.itemIdentifier, lineItem.itemIdentifier, colorItem.itemIdentifier, fillItem.itemIdentifier, undoItem.itemIdentifier]
     }
 
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [copyItem.itemIdentifier, saveItem.itemIdentifier, saveAsItem.itemIdentifier, .flexibleSpace, rectItem.itemIdentifier, lineItem.itemIdentifier, colorItem.itemIdentifier, undoItem.itemIdentifier]
+        [copyItem.itemIdentifier, saveItem.itemIdentifier, saveAsItem.itemIdentifier, .flexibleSpace, rectItem.itemIdentifier, lineItem.itemIdentifier, colorItem.itemIdentifier, fillItem.itemIdentifier, undoItem.itemIdentifier]
     }
 
     func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier identifier: NSToolbarItem.Identifier, willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
@@ -358,6 +372,7 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
         if identifier == rectItem.itemIdentifier { return rectItem }
         if identifier == lineItem.itemIdentifier { return lineItem }
         if identifier == colorItem.itemIdentifier { return colorItem }
+        if identifier == fillItem.itemIdentifier { return fillItem }
         if identifier == undoItem.itemIdentifier { return undoItem }
         return nil
     }
@@ -381,6 +396,11 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
         if let data = try? NSKeyedArchiver.archivedData(withRootObject: sender.color, requiringSecureCoding: false) {
             UserDefaults.standard.set(data, forKey: "drawingColor")
         }
+    }
+
+    @objc private func fillChanged(_ sender: NSButton) {
+        overlayView.shapeFill = sender.state == .on
+        UserDefaults.standard.set(overlayView.shapeFill, forKey: "drawingFill")
     }
 
     @objc private func beginTool(_ sender: NSToolbarItem) {
@@ -444,6 +464,7 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
             let start = map(s.start)
             let end = map(s.end)
             s.color.setStroke()
+            if s.fill { s.color.setFill() }
             switch s.kind {
             case .rect:
                 let r = NSRect(
@@ -452,6 +473,7 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
                 )
                 let path = NSBezierPath(rect: r)
                 path.lineWidth = s.lineWidth * sx
+                if s.fill { path.fill() }
                 path.stroke()
             case .line:
                 let path = NSBezierPath()
