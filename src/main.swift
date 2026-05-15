@@ -268,9 +268,6 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
 
         overlayView.onShapeFinished = { [weak self] _ in
             self?.undoItem.isEnabled = true
-        }
-
-        overlayView.onToolConsumed = { [weak self] in
             self?.resetToolItemAppearance()
         }
 
@@ -369,7 +366,7 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
         } else if sender.itemIdentifier == lineItem.itemIdentifier {
             overlayView.activeTool = .line
             activeToolItem = lineItem
-            lineItem.image = NSImage(systemSymbolName: "lineweight", accessibilityDescription: "Draw line")
+            lineItem.image = NSImage(systemSymbolName: "pencil.and.outline", accessibilityDescription: "Draw line")
         }
     }
 
