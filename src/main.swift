@@ -91,9 +91,9 @@ func applicationDidFinishLaunching(_ notification: Notification) {
         main.addItem(fileItem)
 
         let edit = NSMenu(title: "Edit")
-        let copy = NSMenuItem(title: "Copy", action: #selector(NSApplication.copy(_:)), keyEquivalent: "c")
+        let copy = NSMenuItem(title: "Copy", action: Selector(("copy:")), keyEquivalent: "c")
         edit.addItem(copy)
-        let selectAll = NSMenuItem(title: "Select All", action: #selector(NSApplication.selectAll(_:)), keyEquivalent: "a")
+        let selectAll = NSMenuItem(title: "Select All", action: Selector(("selectAll:")), keyEquivalent: "a")
         edit.addItem(selectAll)
 
         let editItem = NSMenuItem(title: "Edit", action: nil, keyEquivalent: "")
