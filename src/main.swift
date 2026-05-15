@@ -139,6 +139,9 @@ func applicationDidFinishLaunching(_ notification: Notification) {
         captureItem.keyEquivalentModifierMask = NSEvent.ModifierFlags(rawValue: savedHotkeyModifiers)
         captureItem.target = self
         menu.addItem(captureItem)
+        let fullItem = NSMenuItem(title: "Capture full screen", action: #selector(captureFullScreen), keyEquivalent: "")
+        fullItem.target = self
+        menu.addItem(fullItem)
         menu.addItem(.separator())
 
         if !CaptureController.history.isEmpty {
@@ -183,6 +186,20 @@ func applicationDidFinishLaunching(_ notification: Notification) {
             self?.statusItem.button?.contentTintColor = highlighted ? .systemBlue : nil
         }
         CaptureController.shared.beginCapture()
+    }
+
+    @objc func captureFullScreen() {
+        if #available(macOS 14.0, *) {
+            guard CGPreflightScreenCaptureAccess() || CGRequestScreenCaptureAccess() else {
+                NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")!)
+                return
+            }
+        }
+        statusItem.button?.contentTintColor = .systemBlue
+        CaptureController.shared.onCaptureStateChange = { [weak self] highlighted in
+            self?.statusItem.button?.contentTintColor = highlighted ? .systemBlue : nil
+        }
+        CaptureController.shared.beginFullScreenCapture()
     }
 
     @objc func showPreferences() {
@@ -346,6 +363,32 @@ final class CaptureController: NSObject {
 
     func beginCapture() {
         runScreencapture()
+    }
+
+    func beginFullScreenCapture() {
+        let tempFile = FileManager.default.temporaryDirectory
+            .appendingPathComponent("dotmenu_\(UUID().uuidString).png")
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
+        process.arguments = [tempFile.path]
+
+        process.terminationHandler = { [weak self] p in
+            guard p.terminationStatus == 0,
+                  let image = NSImage(contentsOf: tempFile)
+            else {
+                try? FileManager.default.removeItem(at: tempFile)
+                DispatchQueue.main.async { self?.onCaptureStateChange?(false) }
+                return
+            }
+            try? FileManager.default.removeItem(at: tempFile)
+            DispatchQueue.main.async { self?.saveAndShow(image: image) }
+        }
+        do {
+            try process.run()
+        } catch {
+            onCaptureStateChange?(false)
+        }
     }
 
     private func runScreencapture() {
