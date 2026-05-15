@@ -81,6 +81,10 @@ func applicationDidFinishLaunching(_ notification: Notification) {
         file.addItem(.separator())
         let close = NSMenuItem(title: "Close Window", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
         file.addItem(close)
+        let closeAll = NSMenuItem(title: "Close All", action: #selector(closeAllWindows), keyEquivalent: "W")
+        closeAll.keyEquivalentModifierMask = [.command, .shift]
+        closeAll.target = self
+        file.addItem(closeAll)
         file.addItem(.separator())
         let save = NSMenuItem(title: "Save", action: #selector(CaptureWindowController.saveImage), keyEquivalent: "s")
         file.addItem(save)
@@ -142,7 +146,7 @@ func applicationDidFinishLaunching(_ notification: Notification) {
         let fullItem = NSMenuItem(title: "Capture full screen", action: #selector(captureFullScreen), keyEquivalent: "")
         fullItem.target = self
         menu.addItem(fullItem)
-        let winItem = NSMenuItem(title: "Capture foremost window", action: #selector(captureWindow), keyEquivalent: "")
+        let winItem = NSMenuItem(title: "Capture window", action: #selector(captureWindow), keyEquivalent: "")
         winItem.target = self
         menu.addItem(winItem)
         menu.addItem(.separator())
@@ -217,6 +221,12 @@ func applicationDidFinishLaunching(_ notification: Notification) {
             self?.statusItem.button?.contentTintColor = highlighted ? .systemBlue : nil
         }
         CaptureController.shared.beginWindowCapture()
+    }
+
+    @objc func closeAllWindows() {
+        for ctrl in CaptureController.shared.captureWindowControllers {
+            ctrl.window?.close()
+        }
     }
 
     @objc func showPreferences() {
@@ -363,7 +373,8 @@ final class CaptureController: NSObject {
     }()
 
     func showHistoryItem(_ item: CaptureHistoryItem) {
-        let url = capturesDir.appendingPathComponent("history")
+        let ts = CaptureController.dateFormatter.string(from: item.date).replacingOccurrences(of: ":", with: "-").replacingOccurrences(of: " ", with: "_")
+        let url = capturesDir.appendingPathComponent("hst-\(ts).png")
         let ctrl = CaptureWindowController(image: item.image, fileURL: url)
         ctrl.window?.center()
         captureWindowControllers.append(ctrl)
