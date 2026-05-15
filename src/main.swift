@@ -312,9 +312,9 @@ final class CaptureController: NSObject {
         }
     }
 
-    static func addToHistory(image: NSImage, label: String) {
+    static func addToHistory(image: NSImage, label: String, filename: String) {
         let item = CaptureHistoryItem(image: image, label: label)
-        item.filename = "\(UUID().uuidString).png"
+        item.filename = filename
         let url = historyDir.appendingPathComponent(item.filename)
         if let data = image.tiffRepresentation,
            let rep = NSBitmapImageRep(data: data),
@@ -332,12 +332,12 @@ final class CaptureController: NSObject {
 
     static func updateLastHistory(image newImage: NSImage) {
         guard let item = history.last else { return }
-        let url = historyDir.appendingPathComponent(item.filename)
         item.image = newImage
         if let data = newImage.tiffRepresentation,
            let rep = NSBitmapImageRep(data: data),
            let pngData = rep.representation(using: .png, properties: [:]) {
-            try? pngData.write(to: url)
+            try? pngData.write(to: historyDir.appendingPathComponent(item.filename))
+            try? pngData.write(to: shared.capturesDir.appendingPathComponent(item.filename))
         }
     }
 
@@ -373,8 +373,7 @@ final class CaptureController: NSObject {
     }()
 
     func showHistoryItem(_ item: CaptureHistoryItem) {
-        let ts = CaptureController.dateFormatter.string(from: item.date).replacingOccurrences(of: ":", with: "-").replacingOccurrences(of: " ", with: "_")
-        let url = capturesDir.appendingPathComponent("hst-\(ts).png")
+        let url = capturesDir.appendingPathComponent(item.filename)
         let ctrl = CaptureWindowController(image: item.image, fileURL: url)
         ctrl.window?.center()
         captureWindowControllers.append(ctrl)
@@ -382,7 +381,7 @@ final class CaptureController: NSObject {
         NSApp.activate(ignoringOtherApps: true)
     }
 
-    private let capturesDir: URL = {
+    let capturesDir: URL = {
         let pictures = FileManager.default.urls(for: .picturesDirectory, in: .userDomainMask)[0]
         return pictures.appendingPathComponent("DotMenu")
 }()
@@ -482,9 +481,10 @@ final class CaptureController: NSObject {
         formatter.dateFormat = "yyyy-MM-dd_HHmmss"
         let timestamp = formatter.string(from: Date())
         let prefix = currentPrefix
-        let url = capturesDir.appendingPathComponent("\(prefix)-Capture_\(timestamp).png")
+        let filename = "\(prefix)-Capture_\(timestamp).png"
+        let url = capturesDir.appendingPathComponent(filename)
 
-        CaptureController.addToHistory(image: image, label: "\(prefix)-\(CaptureController.dateFormatter.string(from: Date()))")
+        CaptureController.addToHistory(image: image, label: "\(prefix)-\(CaptureController.dateFormatter.string(from: Date()))", filename: filename)
 
         let controller = CaptureWindowController(image: image, fileURL: url)
         controller.window?.center()
