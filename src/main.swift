@@ -217,6 +217,10 @@ final class CaptureController: NSObject {
             try? FileManager.default.removeItem(at: historyDir.appendingPathComponent(item.filename))
         }
         history.removeAll()
+        for ctrl in shared.captureWindowControllers {
+            ctrl.window?.close()
+        }
+        shared.captureWindowControllers.removeAll()
         rewriteMetadata()
         (NSApp.delegate as? AppDelegate)?.rebuildMenu()
     }
