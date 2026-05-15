@@ -573,7 +573,7 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
     private var fillItem: NSToolbarItem!
     private var widthItem: NSToolbarItem!
     private var paletteItem: NSToolbarItem!
-    private let palettePopover = NSPopover()
+    private var paletteWindowController: NSWindowController?
     private let widthPopUp: NSPopUpButton
     private var keyMonitor: Any?
     private let colorWell: NSColorWell
@@ -817,6 +817,12 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
     }
 
     @objc private func extractPalette() {
+        if let wc = paletteWindowController {
+            wc.window?.orderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+
         let colors = PaletteExtractor.extract(from: image, count: 5)
         guard !colors.isEmpty else { return }
 
@@ -844,27 +850,47 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
             col.spacing = 4
             col.alignment = .centerX
 
-            let click = NSClickGestureRecognizer(target: self, action: #selector(copyHex(_:)))
+            let click = NSClickGestureRecognizer(target: self, action: #selector(pickColor(_:)))
             col.addGestureRecognizer(click)
             col.identifier = NSUserInterfaceItemIdentifier(hex)
 
             stack.addArrangedSubview(col)
         }
 
-        let vc = NSViewController()
-        vc.view = stack
-        palettePopover.contentViewController = vc
-        palettePopover.behavior = .transient
-        palettePopover.show(relativeTo: paletteItem.view?.bounds ?? .zero, of: paletteItem.view!, preferredEdge: .maxY)
+        let window = NSWindow(
+            contentRect: NSRect(origin: .zero, size: NSSize(width: 360, height: 110)),
+            styleMask: [.titled, .closable],
+            backing: .buffered, defer: false
+        )
+        window.title = "Palette"
+        window.contentView = stack
+        window.isReleasedWhenClosed = false
+        window.center()
+
+        let controller = NSWindowController(window: window)
+        paletteWindowController = controller
+        window.orderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
     }
 
-    @objc private func copyHex(_ sender: NSClickGestureRecognizer) {
-        guard let id = sender.view?.identifier?.rawValue else { return }
+    @objc private func pickColor(_ sender: NSClickGestureRecognizer) {
+        guard let hex = sender.view?.identifier?.rawValue,
+              let color = NSColor(hexString: hex)
+        else { return }
+
+        overlayView.shapeColor = color
+        colorWell.color = color
+        if let data = try? NSKeyedArchiver.archivedData(withRootObject: color, requiringSecureCoding: false) {
+            UserDefaults.standard.set(data, forKey: "drawingColor")
+        }
+
         let pb = NSPasteboard.general
         pb.clearContents()
-        pb.setString(id, forType: .string)
-        showToast("Copied \(id)")
-        palettePopover.performClose(sender)
+        pb.setString(hex, forType: .string)
+        showToast("Copied \(hex)")
+
+        paletteWindowController?.window?.close()
+        paletteWindowController = nil
     }
 
     @objc private func beginTool(_ sender: NSToolbarItem) {
@@ -1091,6 +1117,13 @@ extension NSColor {
         var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
         converted.getRed(&r, green: &g, blue: &b, alpha: &a)
         return String(format: "#%02X%02X%02X", Int(r * 255), Int(g * 255), Int(b * 255))
+    }
+
+    convenience init?(hexString: String) {
+        let h = hexString.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
+        guard h.count == 6 else { return nil }
+        guard let v = Int(h, radix: 16) else { return nil }
+        self.init(red: CGFloat((v >> 16) & 0xFF) / 255, green: CGFloat((v >> 8) & 0xFF) / 255, blue: CGFloat(v & 0xFF) / 255, alpha: 1)
     }
 }
 
