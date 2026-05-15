@@ -169,6 +169,7 @@ final class DrawingOverlayView: NSView {
     override func mouseDragged(with event: NSEvent) {
         guard var s = inProgress else { return }
         s.end = convert(event.locationInWindow, from: nil)
+        constrainAspectRatio(&s, event: event)
         inProgress = s
         needsDisplay = true
     }
@@ -176,10 +177,20 @@ final class DrawingOverlayView: NSView {
     override func mouseUp(with event: NSEvent) {
         guard var s = inProgress else { return }
         s.end = convert(event.locationInWindow, from: nil)
+        constrainAspectRatio(&s, event: event)
         shapes.append(s)
         inProgress = nil
         onShapeFinished?(s)
         needsDisplay = true
+    }
+
+    private func constrainAspectRatio(_ s: inout Shape, event: NSEvent) {
+        guard s.kind != .line, event.modifierFlags.contains(.shift) else { return }
+        let dx = s.end.x - s.start.x
+        let dy = s.end.y - s.start.y
+        let size = max(abs(dx), abs(dy))
+        s.end.x = s.start.x + (dx >= 0 ? size : -size)
+        s.end.y = s.start.y + (dy >= 0 ? size : -size)
     }
 
     override func draw(_ dirtyRect: NSRect) {
