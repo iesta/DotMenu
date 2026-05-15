@@ -436,6 +436,8 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
     private var undoItem: NSToolbarItem!
     private var colorItem: NSToolbarItem!
     private var fillItem: NSToolbarItem!
+    private var widthItem: NSToolbarItem!
+    private let widthPopUp: NSPopUpButton
     private var keyMonitor: Any?
     private let colorWell: NSColorWell
     private weak var activeToolItem: NSToolbarItem?
@@ -494,6 +496,15 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
 
         let fillBtn = NSButton(checkboxWithTitle: "Fill", target: nil, action: nil)
         fillBtn.state = overlayView.shapeFill ? .on : .off
+
+        let savedWidth = UserDefaults.standard.integer(forKey: "lineWidth")
+        overlayView.shapeLineWidth = savedWidth > 0 ? CGFloat(savedWidth) : 3
+        widthPopUp = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 56, height: 24), pullsDown: false)
+        for w in [1, 2, 3, 4, 5, 6, 8, 10, 12, 16] {
+            widthPopUp.addItem(withTitle: "\(w)")
+        }
+        widthPopUp.selectItem(withTitle: "\(Int(overlayView.shapeLineWidth))")
+        widthPopUp.bezelStyle = .texturedRounded
 
         super.init(window: window)
 
@@ -563,6 +574,12 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
         fillItem = NSToolbarItem(itemIdentifier: NSToolbarItem.Identifier("fillItem"))
         fillItem.view = fillBtn
 
+        widthPopUp.target = self
+        widthPopUp.action = #selector(widthChanged)
+        widthItem = NSToolbarItem(itemIdentifier: NSToolbarItem.Identifier("widthItem"))
+        widthItem.label = "Width"
+        widthItem.view = widthPopUp
+
         let toolbar = NSToolbar(identifier: "CaptureToolbar")
         toolbar.delegate = self
         window.toolbar = toolbar
@@ -582,6 +599,7 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
             if !cmd && chars == "r" { self.beginTool(self.rectItem); return nil }
             if !cmd && chars == "c" { self.beginTool(self.circleItem); return nil }
             if !cmd && chars == "l" { self.beginTool(self.lineItem); return nil }
+            if !cmd && event.keyCode == 36 { self.copyImage(); return nil }
             return event
         }
 
@@ -595,11 +613,11 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
     }
 
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [copyItem.itemIdentifier, saveItem.itemIdentifier, saveAsItem.itemIdentifier, .flexibleSpace, rectItem.itemIdentifier, circleItem.itemIdentifier, lineItem.itemIdentifier, colorItem.itemIdentifier, fillItem.itemIdentifier, undoItem.itemIdentifier]
+        [copyItem.itemIdentifier, saveItem.itemIdentifier, saveAsItem.itemIdentifier, .flexibleSpace, rectItem.itemIdentifier, circleItem.itemIdentifier, lineItem.itemIdentifier, colorItem.itemIdentifier, fillItem.itemIdentifier, widthItem.itemIdentifier, undoItem.itemIdentifier]
     }
 
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [copyItem.itemIdentifier, saveItem.itemIdentifier, saveAsItem.itemIdentifier, .flexibleSpace, rectItem.itemIdentifier, circleItem.itemIdentifier, lineItem.itemIdentifier, colorItem.itemIdentifier, fillItem.itemIdentifier, undoItem.itemIdentifier]
+        [copyItem.itemIdentifier, saveItem.itemIdentifier, saveAsItem.itemIdentifier, .flexibleSpace, rectItem.itemIdentifier, circleItem.itemIdentifier, lineItem.itemIdentifier, colorItem.itemIdentifier, fillItem.itemIdentifier, widthItem.itemIdentifier, undoItem.itemIdentifier]
     }
 
     func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier identifier: NSToolbarItem.Identifier, willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
@@ -611,6 +629,7 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
         if identifier == lineItem.itemIdentifier { return lineItem }
         if identifier == colorItem.itemIdentifier { return colorItem }
         if identifier == fillItem.itemIdentifier { return fillItem }
+        if identifier == widthItem.itemIdentifier { return widthItem }
         if identifier == undoItem.itemIdentifier { return undoItem }
         return nil
     }
@@ -643,6 +662,12 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
     @objc private func fillChanged(_ sender: NSButton) {
         overlayView.shapeFill = sender.state == .on
         UserDefaults.standard.set(overlayView.shapeFill, forKey: "drawingFill")
+    }
+
+    @objc private func widthChanged(_ sender: NSPopUpButton) {
+        guard let title = sender.selectedItem?.title, let w = Float(title) else { return }
+        overlayView.shapeLineWidth = CGFloat(w)
+        UserDefaults.standard.set(Int(w), forKey: "lineWidth")
     }
 
     @objc private func beginTool(_ sender: NSToolbarItem) {
@@ -762,6 +787,7 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
             pb.writeObjects([item])
         }
         showToast("Copied to pasteboard")
+        NSSound(named: "Pop")?.play()
     }
 
     @objc private func saveImage() {
