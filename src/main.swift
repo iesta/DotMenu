@@ -510,16 +510,27 @@ final class PaletteExtractor {
         let maxDim: CGFloat = 150
         let w = min(image.size.width, maxDim)
         let h = min(image.size.height, maxDim)
-        let small = NSImage(size: NSSize(width: w, height: h))
-        small.lockFocus()
+
+        let rep = NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: Int(w), pixelsHigh: Int(h),
+            bitsPerSample: 8, samplesPerPixel: 4,
+            hasAlpha: true, isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bitmapFormat: [],
+            bytesPerRow: Int(w) * 4,
+            bitsPerPixel: 32
+        )
+        guard let rep = rep else { return [] }
+
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
         image.draw(in: NSRect(origin: .zero, size: NSSize(width: w, height: h)))
-        small.unlockFocus()
+        NSGraphicsContext.restoreGraphicsState()
 
-        guard let rep = small.representations.first as? NSBitmapImageRep,
-              let pixels = rep.bitmapData
-        else { return [] }
+        guard let pixels = rep.bitmapData else { return [] }
 
-        let bw = Int(rep.pixelsWide), bh = Int(rep.pixelsHigh)
+        let bw = Int(w), bh = Int(h)
         var points: [(r: Float, g: Float, b: Float)] = []
         for y in 0..<bh {
             for x in 0..<bw {
@@ -824,7 +835,10 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
         }
 
         let colors = PaletteExtractor.extract(from: image, count: 5)
-        guard !colors.isEmpty else { return }
+        guard !colors.isEmpty else {
+            showToast("Could not extract palette")
+            return
+        }
 
         let stack = NSStackView()
         stack.orientation = .horizontal
