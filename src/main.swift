@@ -363,16 +363,34 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
     }
 
     private func compositedImage() -> NSImage {
-        let size = image.size
-        let img = NSImage(size: size)
+        let fullSize = image.size
+        let containerSize = overlayView.bounds.size
+        let img = NSImage(size: fullSize)
         img.lockFocus()
-        image.draw(in: NSRect(origin: .zero, size: size))
-        let scale = size.width / overlayView.bounds.width
-        let h = size.height
+        image.draw(in: NSRect(origin: .zero, size: fullSize))
+
+        let imageAspect = fullSize.width / fullSize.height
+        let containerAspect = containerSize.width / containerSize.height
+        var imageRect: NSRect
+        if imageAspect > containerAspect {
+            let h = containerSize.width / imageAspect
+            imageRect = NSRect(x: 0, y: (containerSize.height - h) / 2, width: containerSize.width, height: h)
+        } else {
+            let w = containerSize.height * imageAspect
+            imageRect = NSRect(x: (containerSize.width - w) / 2, y: 0, width: w, height: containerSize.height)
+        }
+
+        let sx = fullSize.width / imageRect.width
+        let sy = fullSize.height / imageRect.height
+
         for s in overlayView.shapes {
-            let flip: (NSPoint) -> NSPoint = { NSPoint(x: $0.x, y: h - $0.y) }
-            let start = flip(s.start)
-            let end = flip(s.end)
+            let map: (NSPoint) -> NSPoint = { pt in
+                let nx = (pt.x - imageRect.origin.x) * sx
+                let ny = (imageRect.height - (pt.y - imageRect.origin.y)) * sy
+                return NSPoint(x: nx, y: ny)
+            }
+            let start = map(s.start)
+            let end = map(s.end)
             s.color.setStroke()
             switch s.kind {
             case .rect:
@@ -381,13 +399,13 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
                     width: abs(end.x - start.x), height: abs(end.y - start.y)
                 )
                 let path = NSBezierPath(rect: r)
-                path.lineWidth = s.lineWidth * scale
+                path.lineWidth = s.lineWidth * sx
                 path.stroke()
             case .line:
                 let path = NSBezierPath()
                 path.move(to: start)
                 path.line(to: end)
-                path.lineWidth = s.lineWidth * scale
+                path.lineWidth = s.lineWidth * sx
                 path.stroke()
             }
         }
