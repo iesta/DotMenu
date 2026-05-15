@@ -85,7 +85,6 @@ func applicationDidFinishLaunching(_ notification: Notification) {
                 mi.representedObject = item
                 menu.addItem(mi)
             }
-            menu.addItem(.separator())
         }
 
         let prefsItem = NSMenuItem(title: "Preferences…", action: #selector(showPreferences), keyEquivalent: "")
