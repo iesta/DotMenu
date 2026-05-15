@@ -589,7 +589,7 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
         toastLabel.frame.origin.x = (imageSize.width - 200) / 2
 
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard let self else { return event }
+            guard let self, self.window?.isKeyWindow == true else { return event }
             let cmd = event.modifierFlags.contains(.command)
             let shift = event.modifierFlags.contains(.shift)
             guard let chars = event.charactersIgnoringModifiers?.lowercased() else { return event }
@@ -787,7 +787,7 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
             pb.writeObjects([item])
         }
         showToast("Copied to pasteboard")
-        NSSound(named: "Pop")?.play()
+        NSSound(named: "Tink")?.play()
     }
 
     @objc private func saveImage() {
