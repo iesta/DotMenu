@@ -1,6 +1,25 @@
 import AppKit
 import SwiftUI
 
+let hotkeyKeyCodeKey = "hotkeyKeyCode"
+let hotkeyModifiersKey = "hotkeyModifiers"
+
+var savedHotkeyKeyCode: UInt16 {
+    get { UInt16(UserDefaults.standard.integer(forKey: hotkeyKeyCodeKey)) }
+    set { UserDefaults.standard.set(Int(newValue), forKey: hotkeyKeyCodeKey) }
+}
+
+var savedHotkeyModifiers: UInt {
+    get { UInt(bitPattern: UserDefaults.standard.integer(forKey: hotkeyModifiersKey)) }
+    set { UserDefaults.standard.set(Int(bitPattern: newValue), forKey: hotkeyModifiersKey) }
+}
+
+func matchesHotkey(event: NSEvent) -> Bool {
+    let keyCode = savedHotkeyKeyCode
+    let modifiers = NSEvent.ModifierFlags(rawValue: savedHotkeyModifiers)
+    return event.keyCode == keyCode && event.modifierFlags.contains(modifiers)
+}
+
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
     private var prefsWindowController: NSWindowController?
@@ -24,11 +43,13 @@ func applicationDidFinishLaunching(_ notification: Notification) {
         menu.addItem(NSMenuItem(title: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         statusItem.menu = menu
 
+        if UserDefaults.standard.object(forKey: hotkeyKeyCodeKey) == nil {
+            savedHotkeyKeyCode = 26 // kVK_ANSI_7
+            savedHotkeyModifiers = NSEvent.ModifierFlags([.command, .shift]).rawValue
+        }
+
         hotkeyMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard event.modifierFlags.contains(.command),
-                  event.modifierFlags.contains(.shift),
-                  event.charactersIgnoringModifiers == "7"
-            else { return }
+            guard matchesHotkey(event: event) else { return }
             self?.captureSelection()
         }
     }
@@ -54,7 +75,7 @@ func applicationDidFinishLaunching(_ notification: Notification) {
         let window = NSWindow(contentViewController: hosting)
         window.title = "Preferences"
         window.styleMask = [.titled, .closable]
-        window.setContentSize(NSSize(width: 380, height: 260))
+        window.setContentSize(NSSize(width: 380, height: 340))
         window.center()
         window.isReleasedWhenClosed = false
 
@@ -401,7 +422,7 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
             guard let chars = event.charactersIgnoringModifiers?.lowercased() else { return event }
             if cmd && !shift && chars == "c" { self.copyImage(); return nil }
             if cmd && !shift && chars == "s" { self.saveImage(); return nil }
-            if cmd && shift && chars == "7" { CaptureController.shared.beginCapture(); return nil }
+            if matchesHotkey(event: event) { CaptureController.shared.beginCapture(); return nil }
             if !cmd && chars == "r" { self.beginTool(self.rectItem); return nil }
             if !cmd && chars == "c" { self.beginTool(self.circleItem); return nil }
             if !cmd && chars == "l" { self.beginTool(self.lineItem); return nil }
@@ -616,7 +637,56 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
 
 // MARK: - Preferences
 
+struct KeyCaptureView: NSViewRepresentable {
+    @Binding var isRecording: Bool
+    var onCapture: (NSEvent) -> Void
+
+    final class KeyView: NSView {
+        var parent: KeyCaptureView?
+        override var acceptsFirstResponder: Bool { true }
+        override func keyDown(with event: NSEvent) {
+            parent?.onCapture(event)
+        }
+    }
+
+    func makeNSView(context: Context) -> KeyView {
+        let v = KeyView()
+        v.parent = self
+        DispatchQueue.main.async { v.window?.makeFirstResponder(v) }
+        return v
+    }
+
+    func updateNSView(_ nsView: KeyView, context: Context) {
+        nsView.parent = self
+        if isRecording {
+            DispatchQueue.main.async { nsView.window?.makeFirstResponder(nsView) }
+        }
+    }
+}
+
 struct PreferencesView: View {
+    @State private var isRecording = false
+    @State private var hotkeyCode = savedHotkeyKeyCode
+    @State private var hotkeyMods = savedHotkeyModifiers
+
+    private var shortcutLabel: String {
+        let mods = NSEvent.ModifierFlags(rawValue: hotkeyMods)
+        var parts: [String] = []
+        if mods.contains(.control) { parts.append("⌃") }
+        if mods.contains(.option) { parts.append("⌥") }
+        if mods.contains(.shift) { parts.append("⇧") }
+        if mods.contains(.command) { parts.append("⌘") }
+        if let source = CGEventSource(stateID: .combinedSessionState),
+           let cgEvent = CGEvent(keyboardEventSource: source, virtualKey: hotkeyCode, keyDown: true),
+           let nsEvent = NSEvent(cgEvent: cgEvent) {
+            let str = nsEvent.charactersIgnoringModifiers?.uppercased() ?? "?"
+            parts.append(str)
+        } else {
+            parts.append("#\(hotkeyCode)")
+        }
+        return parts.joined()
+    }
+
     var body: some View {
         VStack(spacing: 16) {
             Image(systemName: "square.dashed")
@@ -639,11 +709,41 @@ struct PreferencesView: View {
                     Text("~/Pictures/DotMenu")
                         .foregroundColor(.secondary)
                 }
+
+                HStack {
+                    Text("Capture shortcut:")
+                    if isRecording {
+                        Text("Press shortcut…")
+                            .foregroundColor(.red)
+                            .background(
+                                KeyCaptureView(isRecording: $isRecording, onCapture: { event in
+                                    var mods = event.modifierFlags
+                                    mods.remove(.capsLock)
+                                    mods.remove(.numericPad)
+                                    mods.remove(.function)
+                                    savedHotkeyKeyCode = event.keyCode
+                                    savedHotkeyModifiers = mods.rawValue
+                                    hotkeyCode = event.keyCode
+                                    hotkeyMods = mods.rawValue
+                                    isRecording = false
+                                })
+                                .frame(width: 0, height: 0)
+                            )
+                    } else {
+                        Text(shortcutLabel)
+                            .foregroundColor(.secondary)
+                            .onTapGesture { isRecording = true }
+                    }
+                }
+                Button(isRecording ? "Cancel" : "Change Shortcut…") {
+                    isRecording.toggle()
+                }
+                .buttonStyle(.link)
             }
             .font(.body)
         }
         .padding()
-        .frame(width: 380, height: 260)
+        .frame(width: 380, height: 340)
     }
 }
 
