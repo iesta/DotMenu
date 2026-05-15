@@ -314,7 +314,11 @@ final class CaptureController: NSObject {
             try? FileManager.default.removeItem(at: tempFile)
             DispatchQueue.main.async { self?.saveAndShow(image: image) }
         }
-        try? process.run()
+        do {
+            try process.run()
+        } catch {
+            onCaptureStateChange?(false)
+        }
     }
 
     private func saveAndShow(image: NSImage) {
