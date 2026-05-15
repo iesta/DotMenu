@@ -4,6 +4,7 @@ import SwiftUI
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
     private var prefsWindowController: NSWindowController?
+    private var hotkeyMonitor: Any?
 
 func applicationDidFinishLaunching(_ notification: Notification) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
@@ -22,6 +23,14 @@ func applicationDidFinishLaunching(_ notification: Notification) {
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         statusItem.menu = menu
+
+        hotkeyMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard event.modifierFlags.contains(.command),
+                  event.modifierFlags.contains(.shift),
+                  event.charactersIgnoringModifiers == "7"
+            else { return }
+            self?.captureSelection()
+        }
     }
 
 @objc private func captureSelection() {
@@ -68,6 +77,10 @@ func applicationDidFinishLaunching(_ notification: Notification) {
         path.stroke()
         image.unlockFocus()
         return image
+    }
+
+    deinit {
+        if let m = hotkeyMonitor { NSEvent.removeMonitor(m) }
     }
 }
 
@@ -384,9 +397,11 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self else { return event }
             let cmd = event.modifierFlags.contains(.command)
+            let shift = event.modifierFlags.contains(.shift)
             guard let chars = event.charactersIgnoringModifiers?.lowercased() else { return event }
-            if cmd && chars == "c" { self.copyImage(); return nil }
-            if cmd && chars == "s" { self.saveImage(); return nil }
+            if cmd && !shift && chars == "c" { self.copyImage(); return nil }
+            if cmd && !shift && chars == "s" { self.saveImage(); return nil }
+            if cmd && shift && chars == "7" { CaptureController.shared.beginCapture(); return nil }
             if !cmd && chars == "r" { self.beginTool(self.rectItem); return nil }
             if !cmd && chars == "c" { self.beginTool(self.circleItem); return nil }
             if !cmd && chars == "l" { self.beginTool(self.lineItem); return nil }
