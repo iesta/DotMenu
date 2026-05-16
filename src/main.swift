@@ -902,7 +902,6 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
 
         let allControls = NSStackView(views: [
             drawStack, colorWell, fillBtn, widthPopUp,
-            makeBtn("paintpalette", "Palette", #selector(extractPalette)),
             undoBtn,
         ])
         allControls.orientation = .horizontal
@@ -945,17 +944,18 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
     }
 
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [copyItem.itemIdentifier, saveItem.itemIdentifier, saveAsItem.itemIdentifier]
+        [copyItem.itemIdentifier, saveItem.itemIdentifier, saveAsItem.itemIdentifier, .flexibleSpace, paletteItem.itemIdentifier]
     }
 
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [copyItem.itemIdentifier, saveItem.itemIdentifier, saveAsItem.itemIdentifier]
+        [copyItem.itemIdentifier, saveItem.itemIdentifier, saveAsItem.itemIdentifier, .flexibleSpace, paletteItem.itemIdentifier]
     }
 
     func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier identifier: NSToolbarItem.Identifier, willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
         if identifier == copyItem.itemIdentifier { return copyItem }
         if identifier == saveItem.itemIdentifier { return saveItem }
         if identifier == saveAsItem.itemIdentifier { return saveAsItem }
+        if identifier == paletteItem.itemIdentifier { return paletteItem }
         return nil
     }
 
