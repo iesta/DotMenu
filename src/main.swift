@@ -497,7 +497,7 @@ final class CaptureController: NSObject {
 // MARK: - Shape model
 
 struct Shape {
-    enum Kind { case rect, circle, line }
+    enum Kind { case rect, circle, line, arrow }
     let kind: Kind
     let start: NSPoint
     var end: NSPoint
@@ -560,7 +560,7 @@ final class DrawingOverlayView: NSView {
     }
 
     private func constrainAspectRatio(_ s: inout Shape, event: NSEvent) {
-        guard s.kind != .line, event.modifierFlags.contains(.shift) else { return }
+        guard s.kind != .line && s.kind != .arrow, event.modifierFlags.contains(.shift) else { return }
         let dx = s.end.x - s.start.x
         let dy = s.end.y - s.start.y
         let size = max(abs(dx), abs(dy))
@@ -601,11 +601,32 @@ final class DrawingOverlayView: NSView {
             path.line(to: s.end)
             path.lineWidth = s.lineWidth
             path.stroke()
+        case .arrow:
+            drawArrowShape(s)
         }
+    }
+
+    private func drawArrowShape(_ s: Shape) {
+        let path = NSBezierPath()
+        path.move(to: s.start)
+        path.line(to: s.end)
+        path.lineWidth = s.lineWidth
+        path.stroke()
+
+        let angle = atan2(s.end.y - s.start.y, s.end.x - s.start.x)
+        let len: CGFloat = 10 + s.lineWidth
+        let a: CGFloat = .pi / 6
+        let path2 = NSBezierPath()
+        path2.move(to: s.end)
+        path2.line(to: NSPoint(x: s.end.x - len * cos(angle - a), y: s.end.y - len * sin(angle - a)))
+        path2.move(to: s.end)
+        path2.line(to: NSPoint(x: s.end.x - len * cos(angle + a), y: s.end.y - len * sin(angle + a)))
+        path2.lineWidth = s.lineWidth
+        path2.stroke()
     }
 }
 
-// MARK: - Capture Window Controller
+// MARK: - Palette Extractor
 
 final class PaletteExtractor {
     static func extract(from image: NSImage, count: Int = 5) -> [NSColor] {
@@ -681,7 +702,9 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
     private var rectItem: NSToolbarItem!
     private var circleItem: NSToolbarItem!
     private var lineItem: NSToolbarItem!
+    private var arrowItem: NSToolbarItem!
     private var undoItem: NSToolbarItem!
+    private var undoBtn: NSButton!
     private var colorItem: NSToolbarItem!
     private var fillItem: NSToolbarItem!
     private var widthItem: NSToolbarItem!
@@ -799,6 +822,13 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
         lineItem.action = #selector(beginTool)
         lineItem.isEnabled = true
 
+        arrowItem = NSToolbarItem(itemIdentifier: NSToolbarItem.Identifier("arrowItem"))
+        arrowItem.label = "Arrow"
+        arrowItem.image = NSImage(systemSymbolName: "arrow.right", accessibilityDescription: "Draw arrow")
+        arrowItem.target = self
+        arrowItem.action = #selector(beginTool)
+        arrowItem.isEnabled = true
+
         circleItem = NSToolbarItem(itemIdentifier: NSToolbarItem.Identifier("circleItem"))
         circleItem.label = "Circle"
         circleItem.image = NSImage(systemSymbolName: "circle", accessibilityDescription: "Draw circle")
@@ -844,6 +874,46 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
         toolbar.delegate = self
         window.toolbar = toolbar
 
+        let makeBtn = { (symbol: String, tooltip: String, action: Selector) -> NSButton in
+            let b = NSButton(frame: NSRect(x: 0, y: 0, width: 28, height: 24))
+            b.bezelStyle = .texturedRounded
+            b.image = NSImage(systemSymbolName: symbol, accessibilityDescription: tooltip)
+            b.target = self
+            b.action = action
+            b.toolTip = tooltip
+            return b
+        }
+
+        let drawStack = NSStackView(views: [
+            makeBtn("rectangle", "Rectangle", #selector(beginTool)),
+            makeBtn("circle", "Circle", #selector(beginTool)),
+            makeBtn("line.diagonal", "Line", #selector(beginTool)),
+            makeBtn("arrow.right", "Arrow", #selector(beginTool)),
+        ])
+        drawStack.orientation = .horizontal
+        drawStack.spacing = 4
+        drawStack.alignment = .centerY
+        drawStack.setContentHuggingPriority(.required, for: .horizontal)
+
+        // Tag buttons so beginToolSimple can identify them
+        drawStack.arrangedSubviews.enumerated().forEach { i, v in (v as? NSButton)?.tag = i }
+
+        undoBtn = makeBtn("arrow.uturn.backward", "Undo", #selector(undoShape))
+
+        let allControls = NSStackView(views: [
+            drawStack, colorWell, fillBtn, widthPopUp,
+            makeBtn("paintpalette", "Palette", #selector(extractPalette)),
+            undoBtn,
+        ])
+        allControls.orientation = .horizontal
+        allControls.spacing = 6
+        allControls.alignment = .centerY
+
+        let accessory = NSTitlebarAccessoryViewController()
+        accessory.view = allControls
+        accessory.layoutAttribute = .bottom
+        window.addTitlebarAccessoryViewController(accessory)
+
         window.delegate = self
         container.addSubview(toastLabel)
         toastLabel.frame.origin.x = (imageSize.width - 200) / 2
@@ -860,6 +930,7 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
             if !cmd && chars == "r" { self.beginTool(self.rectItem); return nil }
             if !cmd && chars == "c" { self.beginTool(self.circleItem); return nil }
             if !cmd && chars == "l" { self.beginTool(self.lineItem); return nil }
+            if !cmd && chars == "a" { self.beginTool(self.arrowItem); return nil }
             if !cmd && event.keyCode == 36 { self.copyImage(); return nil }
             return event
         }
@@ -874,25 +945,17 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
     }
 
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [copyItem.itemIdentifier, saveItem.itemIdentifier, saveAsItem.itemIdentifier, .flexibleSpace, rectItem.itemIdentifier, circleItem.itemIdentifier, lineItem.itemIdentifier, colorItem.itemIdentifier, fillItem.itemIdentifier, widthItem.itemIdentifier, paletteItem.itemIdentifier, undoItem.itemIdentifier]
+        [copyItem.itemIdentifier, saveItem.itemIdentifier, saveAsItem.itemIdentifier]
     }
 
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [copyItem.itemIdentifier, saveItem.itemIdentifier, saveAsItem.itemIdentifier, .flexibleSpace, rectItem.itemIdentifier, circleItem.itemIdentifier, lineItem.itemIdentifier, colorItem.itemIdentifier, fillItem.itemIdentifier, widthItem.itemIdentifier, paletteItem.itemIdentifier, undoItem.itemIdentifier]
+        [copyItem.itemIdentifier, saveItem.itemIdentifier, saveAsItem.itemIdentifier]
     }
 
     func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier identifier: NSToolbarItem.Identifier, willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
         if identifier == copyItem.itemIdentifier { return copyItem }
         if identifier == saveItem.itemIdentifier { return saveItem }
         if identifier == saveAsItem.itemIdentifier { return saveAsItem }
-        if identifier == rectItem.itemIdentifier { return rectItem }
-        if identifier == circleItem.itemIdentifier { return circleItem }
-        if identifier == lineItem.itemIdentifier { return lineItem }
-        if identifier == colorItem.itemIdentifier { return colorItem }
-        if identifier == fillItem.itemIdentifier { return fillItem }
-        if identifier == widthItem.itemIdentifier { return widthItem }
-        if identifier == paletteItem.itemIdentifier { return paletteItem }
-        if identifier == undoItem.itemIdentifier { return undoItem }
         return nil
     }
 
@@ -1064,20 +1127,31 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
         palettePopover.performClose(nil)
     }
 
-    @objc private func beginTool(_ sender: NSToolbarItem) {
+    @objc private func beginTool(_ sender: Any) {
         resetToolItemAppearance()
-        if sender.itemIdentifier == rectItem.itemIdentifier {
+        let ti: NSToolbarItem?
+        if let item = sender as? NSToolbarItem { ti = item }
+        else if let btn = sender as? NSButton {
+            let mapped = [rectItem, circleItem, lineItem, arrowItem]
+            ti = btn.tag < mapped.count ? mapped[btn.tag] : nil
+        } else { ti = nil }
+        guard let t = ti else { return }
+        if t.itemIdentifier == rectItem.itemIdentifier {
             overlayView.activeTool = .rect
             activeToolItem = rectItem
             rectItem.image = NSImage(systemSymbolName: "rectangle.fill", accessibilityDescription: "Draw rectangle")
-        } else if sender.itemIdentifier == circleItem.itemIdentifier {
+        } else if t.itemIdentifier == circleItem.itemIdentifier {
             overlayView.activeTool = .circle
             activeToolItem = circleItem
             circleItem.image = NSImage(systemSymbolName: "circle.fill", accessibilityDescription: "Draw circle")
-        } else if sender.itemIdentifier == lineItem.itemIdentifier {
+        } else if t.itemIdentifier == lineItem.itemIdentifier {
             overlayView.activeTool = .line
             activeToolItem = lineItem
             lineItem.image = NSImage(systemSymbolName: "pencil.and.outline", accessibilityDescription: "Draw line")
+        } else if t.itemIdentifier == arrowItem.itemIdentifier {
+            overlayView.activeTool = .arrow
+            activeToolItem = arrowItem
+            arrowItem.image = NSImage(systemSymbolName: "arrow.right.to.line", accessibilityDescription: "Draw arrow")
         }
     }
 
@@ -1089,6 +1163,8 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
                 circleItem.image = NSImage(systemSymbolName: "circle", accessibilityDescription: "Draw circle")
             } else if item.itemIdentifier == lineItem.itemIdentifier {
                 lineItem.image = NSImage(systemSymbolName: "line.diagonal", accessibilityDescription: "Draw line")
+            } else if item.itemIdentifier == arrowItem.itemIdentifier {
+                arrowItem.image = NSImage(systemSymbolName: "arrow.right", accessibilityDescription: "Draw arrow")
             }
         }
         activeToolItem = nil
@@ -1157,6 +1233,22 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
                 path.line(to: end)
                 path.lineWidth = s.lineWidth * sx
                 path.stroke()
+            case .arrow:
+                let apath = NSBezierPath()
+                apath.move(to: start)
+                apath.line(to: end)
+                apath.lineWidth = s.lineWidth * sx
+                apath.stroke()
+                let angle = atan2(end.y - start.y, end.x - start.x)
+                let len: CGFloat = (10 + s.lineWidth) * sx
+                let a: CGFloat = .pi / 6
+                let apath2 = NSBezierPath()
+                apath2.move(to: end)
+                apath2.line(to: NSPoint(x: end.x - len * cos(angle - a), y: end.y - len * sin(angle - a)))
+                apath2.move(to: end)
+                apath2.line(to: NSPoint(x: end.x - len * cos(angle + a), y: end.y - len * sin(angle + a)))
+                apath2.lineWidth = s.lineWidth * sx
+                apath2.stroke()
             }
         }
         img.unlockFocus()
