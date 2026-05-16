@@ -933,12 +933,18 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
     }
 
     @objc private func extractPalette() {
+        if palettePopover.isShown {
+            palettePopover.performClose(nil)
+            return
+        }
+
         let colors = PaletteExtractor.extract(from: image, count: 5)
         guard !colors.isEmpty else {
             showToast("Could not extract palette")
             return
         }
 
+        let hexes = colors.map { $0.hexString }
         let stack = NSStackView()
         stack.orientation = .vertical
         stack.spacing = 0
@@ -978,6 +984,26 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
             stack.addArrangedSubview(swatch)
         }
 
+        let sep = NSBox()
+        sep.boxType = .separator
+        stack.addArrangedSubview(sep)
+
+        let jsonBtn = NSButton(title: "Copy as JSON", target: self, action: #selector(copyPaletteJson))
+        jsonBtn.setButtonType(.momentaryPushIn)
+        jsonBtn.isBordered = false
+        jsonBtn.font = NSFont.systemFont(ofSize: 10)
+        jsonBtn.contentTintColor = .systemBlue
+        jsonBtn.action = #selector(copyPaletteJson)
+        jsonBtn.target = self
+        stack.addArrangedSubview(jsonBtn)
+
+        let cssBtn = NSButton(title: "Copy as CSS", target: self, action: #selector(copyPaletteCss))
+        cssBtn.setButtonType(.momentaryPushIn)
+        cssBtn.isBordered = false
+        cssBtn.font = NSFont.systemFont(ofSize: 10)
+        cssBtn.contentTintColor = .systemBlue
+        stack.addArrangedSubview(cssBtn)
+
         let vc = NSViewController()
         vc.view = stack
         palettePopover.contentViewController = vc
@@ -987,7 +1013,39 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
         }
     }
 
-    @objc private func pickColor(_ sender: NSClickGestureRecognizer) {
+    @objc private func copyPaletteJson() {
+        guard let vc = palettePopover.contentViewController else { return }
+        let stack = vc.view as? NSStackView
+        let hexes: [String] = stack?.arrangedSubviews.compactMap { view in
+            guard let swatch = view as? NSView, let hex = swatch.identifier?.rawValue, hex.hasPrefix("#") else { return nil }
+            return "\"\(hex)\""
+        } ?? []
+        guard !hexes.isEmpty else { return }
+        let json = "[\(hexes.joined(separator: ", "))]"
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.setString(json, forType: .string)
+        showToast("Copied JSON palette")
+        palettePopover.performClose(nil)
+    }
+
+    @objc private func copyPaletteCss() {
+        guard let vc = palettePopover.contentViewController else { return }
+        let stack = vc.view as? NSStackView
+        let hexes: [String] = stack?.arrangedSubviews.compactMap { view in
+            guard let swatch = view as? NSView, let hex = swatch.identifier?.rawValue, hex.hasPrefix("#") else { return nil }
+            return hex
+        } ?? []
+        guard !hexes.isEmpty else { return }
+        let css = hexes.enumerated().map { "--color\($0.offset + 1): \($0.element);" }.joined(separator: "\n")
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.setString(css, forType: .string)
+        showToast("Copied CSS palette")
+        palettePopover.performClose(nil)
+    }
+
+    @objc func pickColor(_ sender: NSClickGestureRecognizer) {
         guard let hex = sender.view?.identifier?.rawValue,
               let color = NSColor(hexString: hex)
         else { return }
@@ -1003,7 +1061,7 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
         pb.setString(hex, forType: .string)
         showToast("Copied \(hex)")
 
-        palettePopover.performClose(sender)
+        palettePopover.performClose(nil)
     }
 
     @objc private func beginTool(_ sender: NSToolbarItem) {
