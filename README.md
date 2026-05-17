@@ -2,6 +2,8 @@
 
 A macOS menu bar screen capture utility with drawing tools. Click the dashed-square icon in the menu bar, capture any screen region, and annotate with shapes before copying or saving.
 
+> Vibecoded in one day as an experiment — an old idea I wanted to build 10 years ago but never found the time. Made with [opencode](https://opencode.ai) and DeepSeek 4 Flash (paid + free tiers). Total cost: less than $1.
+
 <p align="center">
   <img src="docs/example.jpeg" width="700" alt="DotMenu screenshot">
 </p>
