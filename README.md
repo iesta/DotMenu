@@ -2,6 +2,14 @@
 
 A macOS menu bar screen capture utility with drawing tools. Click the dashed-square icon in the menu bar, capture any screen region, and annotate with shapes before copying or saving.
 
+<p align="center">
+  <img src="docs/example.jpeg" width="700" alt="DotMenu screenshot">
+</p>
+
+<p align="center">
+  <a href="https://iesta.github.io/DotMenu/">Website</a>
+</p>
+
 ## Features
 
 - **Capture modes** — Selection (interactive crosshair), Full screen, Foremost window
@@ -71,10 +79,14 @@ src/
 ├── version.txt          # Build version counter
 └── VersionGenerated.swift   # Auto-generated, .gitignored
 
+docs/
+├── index.html           # Website (GitHub Pages)
+├── DotMenu.dmg          # Downloadable DMG
+└── example.jpeg         # Screenshot
+
 Makefile                 # Build, sign, install, launch, dmg
 AGENTS.md                # Agent development notes
 README.md                # This file
-TODO.md                  # Upcoming features
 ```
 
 ## Technical details
@@ -93,6 +105,4 @@ TODO.md                  # Upcoming features
 - **Composited export** — Copy/Save combine the original image + all shapes into a single PNG
 - **History persistence** — PNG + JSON in `~/Pictures/DotMenu/.history/`, same filename as capture file
 
-## TODO
 
-See [TODO.md](TODO.md) for planned features.
