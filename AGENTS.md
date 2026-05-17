@@ -44,10 +44,13 @@ swiftc -o DotMenu.app/Contents/MacOS/DotMenu src/main.swift \
 - **Screen Recording permission** required for capture. Install via `make install` to keep the TCC grant across rebuilds.
 - **Version auto-increment** — `src/version.txt` is incremented every build. The current version is displayed in Preferences.
 
-## Interaction protocol
+## DMG release
 
-At the end of each interaction, print the current version from `version.txt` so the user knows which build is running.
-- **Version auto-increment** — `src/version.txt` is incremented every build. The current version is displayed in Preferences.
+Before committing, build with `make install`, then create the DMG:
+
+```sh
+make dmg
+```
 
 ## Interaction protocol
 

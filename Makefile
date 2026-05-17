@@ -9,7 +9,7 @@ APPS_DIR = /Applications
 
 swift_flags = -framework AppKit -framework SwiftUI -target arm64-apple-macosx14.0
 
-.PHONY: build clean install run generate_version
+.PHONY: build clean install run dmg generate_version
 
 generate_version:
 	@version=$$(cat $(VERSION_FILE)); \
@@ -37,6 +37,14 @@ install: build
 
 run: build
 	open "$(APP)"
+
+dmg: build
+	rm -f $(PRODUCT).dmg
+	mkdir -p /tmp/dotmenu-dmg
+	cp -R "$(APP)" /tmp/dotmenu-dmg/
+	ln -s $(APPS_DIR) /tmp/dotmenu-dmg/Applications
+	hdiutil create -volname "$(PRODUCT)" -srcfolder /tmp/dotmenu-dmg -ov -format UDZO "$(PRODUCT).dmg"
+	rm -rf /tmp/dotmenu-dmg
 
 clean:
 	rm -rf "$(APP)" build/ src/VersionGenerated.swift

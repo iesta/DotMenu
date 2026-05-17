@@ -4,25 +4,45 @@ import Carbon
 
 let hotkeyKeyCodeKey = "hotkeyKeyCode"
 let hotkeyModifiersKey = "hotkeyModifiers"
+let fullHotkeyKeyCodeKey = "fullHotkeyKeyCode"
+let fullHotkeyModifiersKey = "fullHotkeyModifiers"
+let winHotkeyKeyCodeKey = "winHotkeyKeyCode"
+let winHotkeyModifiersKey = "winHotkeyModifiers"
 let captureHistoryKey = "captureHistory"
 
 var savedHotkeyKeyCode: UInt16 {
     get { UInt16(UserDefaults.standard.integer(forKey: hotkeyKeyCodeKey)) }
     set { UserDefaults.standard.set(Int(newValue), forKey: hotkeyKeyCodeKey) }
 }
-
 var savedHotkeyModifiers: UInt {
     get { UInt(bitPattern: UserDefaults.standard.integer(forKey: hotkeyModifiersKey)) }
     set { UserDefaults.standard.set(Int(bitPattern: newValue), forKey: hotkeyModifiersKey) }
 }
-
-func matchesHotkey(event: NSEvent) -> Bool {
-    let keyCode = savedHotkeyKeyCode
-    let modifiers = NSEvent.ModifierFlags(rawValue: savedHotkeyModifiers)
-    return event.keyCode == keyCode && event.modifierFlags.contains(modifiers)
+var savedFullHotkeyKeyCode: UInt16 {
+    get { UInt16(UserDefaults.standard.integer(forKey: fullHotkeyKeyCodeKey)) }
+    set { UserDefaults.standard.set(Int(newValue), forKey: fullHotkeyKeyCodeKey) }
+}
+var savedFullHotkeyModifiers: UInt {
+    get { UInt(bitPattern: UserDefaults.standard.integer(forKey: fullHotkeyModifiersKey)) }
+    set { UserDefaults.standard.set(Int(bitPattern: newValue), forKey: fullHotkeyModifiersKey) }
+}
+var savedWinHotkeyKeyCode: UInt16 {
+    get { UInt16(UserDefaults.standard.integer(forKey: winHotkeyKeyCodeKey)) }
+    set { UserDefaults.standard.set(Int(newValue), forKey: winHotkeyKeyCodeKey) }
+}
+var savedWinHotkeyModifiers: UInt {
+    get { UInt(bitPattern: UserDefaults.standard.integer(forKey: winHotkeyModifiersKey)) }
+    set { UserDefaults.standard.set(Int(bitPattern: newValue), forKey: winHotkeyModifiersKey) }
 }
 
-var gHotKeyRef: EventHotKeyRef?
+func matchesHotkey(event: NSEvent, keyCode: UInt16, modifiers: UInt) -> Bool {
+    let m = NSEvent.ModifierFlags(rawValue: modifiers)
+    return event.keyCode == keyCode && event.modifierFlags.contains(m)
+}
+
+var gHotKeyRef1: EventHotKeyRef?
+var gHotKeyRef2: EventHotKeyRef?
+var gHotKeyRef3: EventHotKeyRef?
 
 func installCarbonEventHandler() {
     var handler: EventHandlerRef?
@@ -30,25 +50,36 @@ func installCarbonEventHandler() {
     InstallEventHandler(GetApplicationEventTarget(), { (_, event, _) -> OSStatus in
         var hotKeyID = EventHotKeyID()
         GetEventParameter(event, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID), nil, MemoryLayout<EventHotKeyID>.size, nil, &hotKeyID)
-        if hotKeyID.signature == 0x444D {
-            DispatchQueue.main.async {
-                (NSApp.delegate as? AppDelegate)?.captureSelection()
+        guard hotKeyID.signature == 0x444D else { return noErr }
+        DispatchQueue.main.async {
+            let del = NSApp.delegate as? AppDelegate
+            switch hotKeyID.id {
+            case 1: del?.captureSelection()
+            case 2: del?.captureFullScreen()
+            case 3: del?.captureWindow()
+            default: break
             }
         }
         return noErr
     } as EventHandlerUPP, 1, &spec, nil, &handler)
 }
 
-func registerCarbonHotkey() {
-    if let ref = gHotKeyRef { UnregisterEventHotKey(ref); gHotKeyRef = nil }
+private func registerOneHotkey(keyCode: UInt16, rawModifiers: UInt, id: UInt32, ref: inout EventHotKeyRef?) {
+    if let r = ref { UnregisterEventHotKey(r); ref = nil }
     var mods: UInt32 = 0
-    let flags = NSEvent.ModifierFlags(rawValue: savedHotkeyModifiers)
+    let flags = NSEvent.ModifierFlags(rawValue: rawModifiers)
     if flags.contains(.command) { mods |= UInt32(cmdKey) }
     if flags.contains(.shift) { mods |= UInt32(shiftKey) }
     if flags.contains(.option) { mods |= UInt32(optionKey) }
     if flags.contains(.control) { mods |= UInt32(controlKey) }
-    let id = EventHotKeyID(signature: 0x444D, id: 1)
-    RegisterEventHotKey(UInt32(savedHotkeyKeyCode), mods, id, GetApplicationEventTarget(), 0, &gHotKeyRef)
+    let hotKeyID = EventHotKeyID(signature: 0x444D, id: id)
+    RegisterEventHotKey(UInt32(keyCode), mods, hotKeyID, GetApplicationEventTarget(), 0, &ref)
+}
+
+func registerCarbonHotkeys() {
+    registerOneHotkey(keyCode: savedHotkeyKeyCode, rawModifiers: savedHotkeyModifiers, id: 1, ref: &gHotKeyRef1)
+    registerOneHotkey(keyCode: savedFullHotkeyKeyCode, rawModifiers: savedFullHotkeyModifiers, id: 2, ref: &gHotKeyRef2)
+    registerOneHotkey(keyCode: savedWinHotkeyKeyCode, rawModifiers: savedWinHotkeyModifiers, id: 3, ref: &gHotKeyRef3)
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -63,9 +94,17 @@ func applicationDidFinishLaunching(_ notification: Notification) {
             savedHotkeyKeyCode = 26
             savedHotkeyModifiers = NSEvent.ModifierFlags([.command, .shift]).rawValue
         }
+        if UserDefaults.standard.object(forKey: fullHotkeyKeyCodeKey) == nil {
+            savedFullHotkeyKeyCode = 28
+            savedFullHotkeyModifiers = NSEvent.ModifierFlags([.command, .shift]).rawValue
+        }
+        if UserDefaults.standard.object(forKey: winHotkeyKeyCodeKey) == nil {
+            savedWinHotkeyKeyCode = 25
+            savedWinHotkeyModifiers = NSEvent.ModifierFlags([.command, .shift]).rawValue
+        }
 
         installCarbonEventHandler()
-        registerCarbonHotkey()
+        registerCarbonHotkeys()
         CaptureController.loadHistory()
         rebuildMenu()
         setupMainMenu()
@@ -127,26 +166,30 @@ func applicationDidFinishLaunching(_ notification: Notification) {
         return true
     }
 
+    private func keyEq(for keyCode: UInt16) -> String {
+        if let source = CGEventSource(stateID: .combinedSessionState),
+           let cgEvent = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: true) {
+            cgEvent.flags = []
+            if let nsEvent = NSEvent(cgEvent: cgEvent) {
+                return nsEvent.characters?.lowercased() ?? ""
+            }
+        }
+        return ""
+    }
+
     func rebuildMenu() {
         let menu = NSMenu()
 
-        let keyEq: String
-        if let source = CGEventSource(stateID: .combinedSessionState),
-           let cgEvent = CGEvent(keyboardEventSource: source, virtualKey: savedHotkeyKeyCode, keyDown: true),
-           let nsEvent = NSEvent(cgEvent: cgEvent) {
-            keyEq = nsEvent.charactersIgnoringModifiers?.lowercased() ?? ""
-        } else {
-            keyEq = ""
-        }
-
-        let captureItem = NSMenuItem(title: "Capture selection", action: #selector(captureSelection), keyEquivalent: keyEq)
+        let captureItem = NSMenuItem(title: "Capture selection", action: #selector(captureSelection), keyEquivalent: keyEq(for: savedHotkeyKeyCode))
         captureItem.keyEquivalentModifierMask = NSEvent.ModifierFlags(rawValue: savedHotkeyModifiers)
         captureItem.target = self
         menu.addItem(captureItem)
-        let fullItem = NSMenuItem(title: "Capture full screen", action: #selector(captureFullScreen), keyEquivalent: "")
+        let fullItem = NSMenuItem(title: "Capture full screen", action: #selector(captureFullScreen), keyEquivalent: keyEq(for: savedFullHotkeyKeyCode))
+        fullItem.keyEquivalentModifierMask = NSEvent.ModifierFlags(rawValue: savedFullHotkeyModifiers)
         fullItem.target = self
         menu.addItem(fullItem)
-        let winItem = NSMenuItem(title: "Capture window", action: #selector(captureWindow), keyEquivalent: "")
+        let winItem = NSMenuItem(title: "Capture window", action: #selector(captureWindow), keyEquivalent: keyEq(for: savedWinHotkeyKeyCode))
+        winItem.keyEquivalentModifierMask = NSEvent.ModifierFlags(rawValue: savedWinHotkeyModifiers)
         winItem.target = self
         menu.addItem(winItem)
         menu.addItem(.separator())
@@ -231,7 +274,7 @@ func applicationDidFinishLaunching(_ notification: Notification) {
 
     @objc func showPreferences() {
         if let wc = prefsWindowController {
-            wc.window?.orderFront(nil)
+            wc.window?.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
             return
         }
@@ -246,7 +289,7 @@ func applicationDidFinishLaunching(_ notification: Notification) {
 
         let controller = NSWindowController(window: window)
         prefsWindowController = controller
-        window.orderFront(nil)
+        window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
 
@@ -607,22 +650,25 @@ final class DrawingOverlayView: NSView {
     }
 
     private func drawArrowShape(_ s: Shape) {
-        let path = NSBezierPath()
-        path.move(to: s.start)
-        path.line(to: s.end)
-        path.lineWidth = s.lineWidth
-        path.stroke()
-
         let angle = atan2(s.end.y - s.start.y, s.end.x - s.start.x)
         let len: CGFloat = 10 + s.lineWidth
         let a: CGFloat = .pi / 6
-        let path2 = NSBezierPath()
-        path2.move(to: s.end)
-        path2.line(to: NSPoint(x: s.end.x - len * cos(angle - a), y: s.end.y - len * sin(angle - a)))
-        path2.move(to: s.end)
-        path2.line(to: NSPoint(x: s.end.x - len * cos(angle + a), y: s.end.y - len * sin(angle + a)))
-        path2.lineWidth = s.lineWidth
-        path2.stroke()
+        let baseDist = len * cos(a)
+
+        let shaftEnd = NSPoint(x: s.end.x - baseDist * cos(angle), y: s.end.y - baseDist * sin(angle))
+        let path = NSBezierPath()
+        path.move(to: s.start)
+        path.line(to: shaftEnd)
+        path.lineWidth = s.lineWidth
+        path.stroke()
+
+        let head = NSBezierPath()
+        head.move(to: s.end)
+        head.line(to: NSPoint(x: s.end.x - len * cos(angle - a), y: s.end.y - len * sin(angle - a)))
+        head.line(to: NSPoint(x: s.end.x - len * cos(angle + a), y: s.end.y - len * sin(angle + a)))
+        head.close()
+        s.color.setFill()
+        head.fill()
     }
 }
 
@@ -709,6 +755,8 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
     private var fillItem: NSToolbarItem!
     private var widthItem: NSToolbarItem!
     private var paletteItem: NSToolbarItem!
+    private var accessoryView: NSView!
+    private var toolButtons: [NSButton] = []
     private let palettePopover = NSPopover()
     private let widthPopUp: NSPopUpButton
     private var keyMonitor: Any?
@@ -784,7 +832,7 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
 
         overlayView.onShapeFinished = { [weak self] _ in
             self?.undoItem.isEnabled = true
-            self?.resetToolItemAppearance()
+            self?.resetToolAppearance()
         }
 
         copyItem = NSToolbarItem(itemIdentifier: NSToolbarItem.Identifier("copyItem"))
@@ -875,30 +923,32 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
         window.toolbar = toolbar
 
         let makeBtn = { (symbol: String, tooltip: String, action: Selector) -> NSButton in
-            let b = NSButton(frame: NSRect(x: 0, y: 0, width: 28, height: 24))
+            let b = NSButton(frame: NSRect(x: 0, y: 0, width: 44, height: 32))
             b.bezelStyle = .texturedRounded
-            b.image = NSImage(systemSymbolName: symbol, accessibilityDescription: tooltip)
+            b.image = NSImage(systemSymbolName: symbol, accessibilityDescription: tooltip)?.withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 15, weight: .regular))
             b.target = self
             b.action = action
             b.toolTip = tooltip
+            b.setButtonType(.pushOnPushOff)
             return b
         }
 
-        let drawStack = NSStackView(views: [
+        let toolBtns = [
             makeBtn("rectangle", "Rectangle", #selector(beginTool)),
             makeBtn("circle", "Circle", #selector(beginTool)),
             makeBtn("line.diagonal", "Line", #selector(beginTool)),
             makeBtn("arrow.right", "Arrow", #selector(beginTool)),
-        ])
+        ]
+        toolBtns.enumerated().forEach { i, b in b.tag = i; b.needsDisplay = true }
+
+        let drawStack = NSStackView(views: toolBtns)
         drawStack.orientation = .horizontal
-        drawStack.spacing = 4
+        drawStack.spacing = 6
         drawStack.alignment = .centerY
         drawStack.setContentHuggingPriority(.required, for: .horizontal)
 
-        // Tag buttons so beginToolSimple can identify them
-        drawStack.arrangedSubviews.enumerated().forEach { i, v in (v as? NSButton)?.tag = i }
-
         undoBtn = makeBtn("arrow.uturn.backward", "Undo", #selector(undoShape))
+        undoBtn.setButtonType(.momentaryLight)
 
         let allControls = NSStackView(views: [
             drawStack, colorWell, fillBtn, widthPopUp,
@@ -908,8 +958,19 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
         allControls.spacing = 6
         allControls.alignment = .centerY
 
+        self.accessoryView = NSView()
+        toolButtons = toolBtns
+        accessoryView.addSubview(allControls)
+        allControls.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            allControls.leadingAnchor.constraint(equalTo: accessoryView.leadingAnchor, constant: 8),
+            allControls.topAnchor.constraint(equalTo: accessoryView.topAnchor),
+            allControls.bottomAnchor.constraint(equalTo: accessoryView.bottomAnchor),
+            allControls.trailingAnchor.constraint(lessThanOrEqualTo: accessoryView.trailingAnchor),
+        ])
+
         let accessory = NSTitlebarAccessoryViewController()
-        accessory.view = allControls
+        accessory.view = accessoryView
         accessory.layoutAttribute = .bottom
         window.addTitlebarAccessoryViewController(accessory)
 
@@ -925,7 +986,9 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
             if cmd && !shift && chars == "c" { self.copyImage(); return nil }
             if cmd && !shift && chars == "s" { self.saveImage(); return nil }
             if cmd && !shift && chars == "," { (NSApp.delegate as? AppDelegate)?.showPreferences(); return nil }
-            if matchesHotkey(event: event) { CaptureController.shared.beginCapture(); return nil }
+            if matchesHotkey(event: event, keyCode: savedHotkeyKeyCode, modifiers: savedHotkeyModifiers) { CaptureController.shared.beginCapture(); return nil }
+            if matchesHotkey(event: event, keyCode: savedFullHotkeyKeyCode, modifiers: savedFullHotkeyModifiers) { CaptureController.shared.beginFullScreenCapture(); return nil }
+            if matchesHotkey(event: event, keyCode: savedWinHotkeyKeyCode, modifiers: savedWinHotkeyModifiers) { CaptureController.shared.beginWindowCapture(); return nil }
             if !cmd && chars == "r" { self.beginTool(self.rectItem); return nil }
             if !cmd && chars == "c" { self.beginTool(self.circleItem); return nil }
             if !cmd && chars == "l" { self.beginTool(self.lineItem); return nil }
@@ -1128,10 +1191,12 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
     }
 
     @objc private func beginTool(_ sender: Any) {
-        resetToolItemAppearance()
+        resetToolAppearance()
+        var toolBtn: NSButton?
         let ti: NSToolbarItem?
         if let item = sender as? NSToolbarItem { ti = item }
         else if let btn = sender as? NSButton {
+            toolBtn = btn
             let mapped = [rectItem, circleItem, lineItem, arrowItem]
             ti = btn.tag < mapped.count ? mapped[btn.tag] : nil
         } else { ti = nil }
@@ -1153,9 +1218,10 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
             activeToolItem = arrowItem
             arrowItem.image = NSImage(systemSymbolName: "arrow.right.to.line", accessibilityDescription: "Draw arrow")
         }
+        toolBtn?.state = .on
     }
 
-    private func resetToolItemAppearance() {
+    private func resetToolAppearance() {
         if let item = activeToolItem {
             if item.itemIdentifier == rectItem.itemIdentifier {
                 rectItem.image = NSImage(systemSymbolName: "rectangle", accessibilityDescription: "Draw rectangle")
@@ -1168,6 +1234,8 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
             }
         }
         activeToolItem = nil
+        overlayView.activeTool = nil
+        for btn in toolButtons { btn.state = .off }
     }
 
     @objc func undoShape() {
@@ -1234,21 +1302,23 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
                 path.lineWidth = s.lineWidth * sx
                 path.stroke()
             case .arrow:
-                let apath = NSBezierPath()
-                apath.move(to: start)
-                apath.line(to: end)
-                apath.lineWidth = s.lineWidth * sx
-                apath.stroke()
                 let angle = atan2(end.y - start.y, end.x - start.x)
                 let len: CGFloat = (10 + s.lineWidth) * sx
                 let a: CGFloat = .pi / 6
-                let apath2 = NSBezierPath()
-                apath2.move(to: end)
-                apath2.line(to: NSPoint(x: end.x - len * cos(angle - a), y: end.y - len * sin(angle - a)))
-                apath2.move(to: end)
-                apath2.line(to: NSPoint(x: end.x - len * cos(angle + a), y: end.y - len * sin(angle + a)))
-                apath2.lineWidth = s.lineWidth * sx
-                apath2.stroke()
+                let baseDist = len * cos(a)
+                let shaftEnd = NSPoint(x: end.x - baseDist * cos(angle), y: end.y - baseDist * sin(angle))
+                let apath = NSBezierPath()
+                apath.move(to: start)
+                apath.line(to: shaftEnd)
+                apath.lineWidth = s.lineWidth * sx
+                apath.stroke()
+                let ahead = NSBezierPath()
+                ahead.move(to: end)
+                ahead.line(to: NSPoint(x: end.x - len * cos(angle - a), y: end.y - len * sin(angle - a)))
+                ahead.line(to: NSPoint(x: end.x - len * cos(angle + a), y: end.y - len * sin(angle + a)))
+                ahead.close()
+                s.color.setFill()
+                ahead.fill()
             }
         }
         img.unlockFocus()
@@ -1312,20 +1382,19 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
 struct PreferencesView: View {
     @State private var historyCount = 0
 
-    private var shortcutLabel: String {
-        let mods = NSEvent.ModifierFlags(rawValue: savedHotkeyModifiers)
+    private func fmtShortcut(keyCode: UInt16, modifiers: UInt) -> String {
+        let mods = NSEvent.ModifierFlags(rawValue: modifiers)
         var parts: [String] = []
         if mods.contains(.control) { parts.append("⌃") }
         if mods.contains(.option) { parts.append("⌥") }
         if mods.contains(.shift) { parts.append("⇧") }
         if mods.contains(.command) { parts.append("⌘") }
         if let source = CGEventSource(stateID: .combinedSessionState),
-           let cgEvent = CGEvent(keyboardEventSource: source, virtualKey: savedHotkeyKeyCode, keyDown: true),
+           let cgEvent = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: true),
            let nsEvent = NSEvent(cgEvent: cgEvent) {
-            let str = nsEvent.charactersIgnoringModifiers?.uppercased() ?? "?"
-            parts.append(str)
+            parts.append(nsEvent.charactersIgnoringModifiers?.uppercased() ?? "?")
         } else {
-            parts.append("#\(savedHotkeyKeyCode)")
+            parts.append("#\(keyCode)")
         }
         return parts.joined()
     }
@@ -1354,8 +1423,18 @@ struct PreferencesView: View {
                 }
 
                 HStack {
-                    Text("Capture shortcut:")
-                    Text(shortcutLabel)
+                    Text("Selection:")
+                    Text(fmtShortcut(keyCode: savedHotkeyKeyCode, modifiers: savedHotkeyModifiers))
+                        .foregroundColor(.secondary)
+                }
+                HStack {
+                    Text("Full screen:")
+                    Text(fmtShortcut(keyCode: savedFullHotkeyKeyCode, modifiers: savedFullHotkeyModifiers))
+                        .foregroundColor(.secondary)
+                }
+                HStack {
+                    Text("Window:")
+                    Text(fmtShortcut(keyCode: savedWinHotkeyKeyCode, modifiers: savedWinHotkeyModifiers))
                         .foregroundColor(.secondary)
                 }
 

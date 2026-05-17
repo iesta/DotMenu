@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DotMenu — macOS menu bar screen capture</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 18 18'%3E%3Crect x='2' y='2' width='14' height='14' rx='1' fill='none' stroke='%23d4d4d4' stroke-width='1.8' stroke-dasharray='3 2.5'/%3E%3C/svg%3E" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:opsz@14..32&display=swap" rel="stylesheet" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    * { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; }
+    body { -webkit-font-smoothing: antialiased; }
+  </style>
+</head>
+<body class="bg-neutral-950 text-neutral-100 min-h-screen flex flex-col">
+
+  <!-- Hero -->
+  <header class="flex-1 flex flex-col items-center justify-center px-6 pt-24 pb-16 text-center">
+    <!-- Logo -->
+    <svg width="56" height="56" viewBox="0 0 18 18" class="mb-6 text-neutral-300" fill="none" stroke="currentColor" stroke-width="1.8" stroke-dasharray="3 2.5">
+      <rect x="2" y="2" width="14" height="14" rx="1" />
+    </svg>
+    <h1 class="text-4xl sm:text-5xl font-semibold tracking-tight">DotMenu</h1>
+    <p class="mt-3 text-lg sm:text-xl text-neutral-400 max-w-md">
+      A macOS menu bar utility for quick screen captures with annotation tools.
+    </p>
+    <div class="mt-8 flex flex-wrap gap-4 justify-center">
+      <a href="DotMenu.dmg" class="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-neutral-100 text-neutral-900 font-medium hover:bg-neutral-300 transition-colors">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+        Download .dmg
+      </a>
+      <a href="https://github.com/anomalyco/DotMenu" class="inline-flex items-center gap-2 px-6 py-3 rounded-xl border border-neutral-700 text-neutral-300 font-medium hover:border-neutral-500 hover:text-neutral-100 transition-colors">
+        <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
+        GitHub
+      </a>
+    </div>
+  </header>
+
+  <!-- Screenshot -->
+  <section class="px-6 pb-16 max-w-4xl mx-auto w-full">
+    <img src="example.jpeg" alt="DotMenu screenshot" class="rounded-2xl border border-neutral-800 w-full" />
+  </section>
+
+  <!-- Features -->
+  <section class="px-6 pb-24 max-w-5xl mx-auto w-full">
+    <h2 class="text-2xl font-semibold mb-10 text-center">Features</h2>
+    <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
+      <div class="rounded-xl border border-neutral-800 bg-neutral-900/50 p-5">
+        <div class="w-10 h-10 rounded-lg bg-neutral-800 flex items-center justify-center mb-3">
+          <svg class="w-5 h-5 text-neutral-300" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+        </div>
+        <h3 class="font-medium mb-1">Three capture modes</h3>
+        <p class="text-sm text-neutral-400">Selection, full screen, or foremost window — triggered from the menu bar or global hotkeys.</p>
+      </div>
+      <div class="rounded-xl border border-neutral-800 bg-neutral-900/50 p-5">
+        <div class="w-10 h-10 rounded-lg bg-neutral-800 flex items-center justify-center mb-3">
+          <svg class="w-5 h-5 text-neutral-300" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"/></svg>
+        </div>
+        <h3 class="font-medium mb-1">Drawing annotations</h3>
+        <p class="text-sm text-neutral-400">Rectangle, circle, line, and arrow tools with adjustable color, fill, and line width.</p>
+      </div>
+      <div class="rounded-xl border border-neutral-800 bg-neutral-900/50 p-5">
+        <div class="w-10 h-10 rounded-lg bg-neutral-800 flex items-center justify-center mb-3">
+          <svg class="w-5 h-5 text-neutral-300" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+        </div>
+        <h3 class="font-medium mb-1">Copy &amp; Save</h3>
+        <p class="text-sm text-neutral-400">Copy annotated captures to the pasteboard (Cmd+C, Enter) or save as PNG with automatic naming.</p>
+      </div>
+      <div class="rounded-xl border border-neutral-800 bg-neutral-900/50 p-5">
+        <div class="w-10 h-10 rounded-lg bg-neutral-800 flex items-center justify-center mb-3">
+          <svg class="w-5 h-5 text-neutral-300" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"/></svg>
+        </div>
+        <h3 class="font-medium mb-1">Color palette extraction</h3>
+        <p class="text-sm text-neutral-400">K-Means extracts 5 dominant colors from the capture. Click a swatch to set drawing color and copy its hex value.</p>
+      </div>
+      <div class="rounded-xl border border-neutral-800 bg-neutral-900/50 p-5">
+        <div class="w-10 h-10 rounded-lg bg-neutral-800 flex items-center justify-center mb-3">
+          <svg class="w-5 h-5 text-neutral-300" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"/></svg>
+        </div>
+        <h3 class="font-medium mb-1">Configurable hotkeys</h3>
+        <p class="text-sm text-neutral-400">Global shortcuts for all three capture modes — defaults suit both QWERTY and AZERTY layouts. Rebiddable in Preferences.</p>
+      </div>
+      <div class="rounded-xl border border-neutral-800 bg-neutral-900/50 p-5">
+        <div class="w-10 h-10 rounded-lg bg-neutral-800 flex items-center justify-center mb-3">
+          <svg class="w-5 h-5 text-neutral-300" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+        </div>
+        <h3 class="font-medium mb-1">Capture history</h3>
+        <p class="text-sm text-neutral-400">Last 10 captures persist across app restarts. Access them directly from the menu bar, with annotations preserved.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Download -->
+  <section id="download" class="px-6 pb-24 max-w-lg mx-auto w-full text-center">
+    <h2 class="text-2xl font-semibold mb-3">Download</h2>
+    <p class="text-neutral-400 mb-6 text-sm">macOS 14.0+ (Sonoma), Apple Silicon</p>
+    <a href="DotMenu.dmg" class="inline-flex items-center gap-2 px-8 py-3 rounded-xl bg-neutral-100 text-neutral-900 font-medium hover:bg-neutral-300 transition-colors text-lg">
+      <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+      Download DotMenu.dmg
+    </a>
+  </section>
+
+  <!-- Homebrew -->
+  <section class="px-6 pb-24 max-w-lg mx-auto w-full text-center">
+    <h2 class="text-2xl font-semibold mb-3">Homebrew</h2>
+    <p class="text-neutral-400 mb-6 text-sm">Coming soon</p>
+    <div class="bg-neutral-900 border border-neutral-800 rounded-xl p-4 text-left">
+      <code class="text-sm text-neutral-300 select-all">brew install --cask dotmenu</code>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer class="px-6 py-8 border-t border-neutral-800 text-center text-xs text-neutral-600">
+    DotMenu &middot; MIT License
+  </footer>
+
+</body>
+</html>
