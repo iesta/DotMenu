@@ -82,6 +82,21 @@ func registerCarbonHotkeys() {
     registerOneHotkey(keyCode: savedWinHotkeyKeyCode, rawModifiers: savedWinHotkeyModifiers, id: 3, ref: &gHotKeyRef3)
 }
 
+private func menuThumbnail(from image: NSImage, maxDimension: CGFloat) -> NSImage? {
+    let aspect = image.size.width / image.size.height
+    let thumbSize: NSSize
+    if aspect >= 1 {
+        thumbSize = NSSize(width: maxDimension, height: maxDimension / aspect)
+    } else {
+        thumbSize = NSSize(width: maxDimension * aspect, height: maxDimension)
+    }
+    let thumb = NSImage(size: thumbSize)
+    thumb.lockFocus()
+    image.draw(in: NSRect(origin: .zero, size: thumbSize))
+    thumb.unlockFocus()
+    return thumb
+}
+
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
     private var prefsWindowController: NSWindowController?
@@ -199,6 +214,7 @@ func applicationDidFinishLaunching(_ notification: Notification) {
                 let mi = NSMenuItem(title: item.label, action: #selector(openHistoryItem(_:)), keyEquivalent: "")
                 mi.target = self
                 mi.representedObject = item
+                mi.image = menuThumbnail(from: item.image, maxDimension: 24)
                 menu.addItem(mi)
             }
             menu.addItem(.separator())
