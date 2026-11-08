@@ -9,7 +9,7 @@ APPS_DIR = /Applications
 
 swift_flags = -framework AppKit -framework SwiftUI -target arm64-apple-macosx14.0
 
-.PHONY: build clean install run dmg generate_version
+.PHONY: build clean install run dmg generate_version test
 
 generate_version:
 	@version=$$(cat $(VERSION_FILE)); \
@@ -37,6 +37,11 @@ install: build
 
 run: build
 	open "$(APP)"
+
+test: generate_version
+	@mkdir -p build
+	swiftc -D DOTMENU_TESTS -o build/dotmenu-tests src/main.swift src/VersionGenerated.swift src/Tests.swift $(swift_flags)
+	@./build/dotmenu-tests
 
 dmg: build
 	rm -f $(PRODUCT).dmg

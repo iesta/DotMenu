@@ -15,6 +15,12 @@ Or for a quick build without installing:
 make run
 ```
 
+Run the self-checks (assert-based, no XCTest, does not launch the app):
+
+```sh
+make test
+```
+
 Manual compile equivalent:
 
 ```sh
@@ -28,6 +34,7 @@ swiftc -o DotMenu.app/Contents/MacOS/DotMenu src/main.swift \
 | File | Purpose |
 |---|---|---|
 | `src/main.swift` | Single entrypoint — AppKit + SwiftUI, menu bar item, capture, About window |
+| `src/Tests.swift` | Self-checks for pure logic, compiled only with `-D DOTMENU_TESTS` (`make test`) |
 | `src/version.txt` | Current build version (5-digit, auto-incremented) |
 | `src/VersionGenerated.swift` | **Auto-generated** — `let appVersion` constant from `version.txt` |
 | `src/Info.plist` | `LSUIElement = true` → no dock icon, menu bar only |

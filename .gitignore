@@ -1,6 +1,7 @@
 # Generated files
 src/VersionGenerated.swift
 DotMenu.app
+build/
 .DS_Store
 *.swp
 *.swo

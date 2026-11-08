@@ -83,18 +83,83 @@ func registerCarbonHotkeys() {
 }
 
 private func menuThumbnail(from image: NSImage, maxDimension: CGFloat) -> NSImage? {
-    let aspect = image.size.width / image.size.height
-    let thumbSize: NSSize
-    if aspect >= 1 {
-        thumbSize = NSSize(width: maxDimension, height: maxDimension / aspect)
-    } else {
-        thumbSize = NSSize(width: maxDimension * aspect, height: maxDimension)
-    }
+    let thumbSize = NSSize(width: maxDimension, height: maxDimension)
     let thumb = NSImage(size: thumbSize)
     thumb.lockFocus()
-    image.draw(in: NSRect(origin: .zero, size: thumbSize))
+    let imageSize = image.size
+    let aspect = imageSize.width / imageSize.height
+    let drawRect: NSRect
+    if aspect >= 1 {
+        let h = maxDimension / aspect
+        drawRect = NSRect(x: 0, y: (maxDimension - h) / 2, width: maxDimension, height: h)
+    } else {
+        let w = maxDimension * aspect
+        drawRect = NSRect(x: (maxDimension - w) / 2, y: 0, width: w, height: maxDimension)
+    }
+    image.draw(in: drawRect, from: NSRect(origin: .zero, size: imageSize), operation: .copy, fraction: 1.0)
     thumb.unlockFocus()
     return thumb
+}
+
+private let historyTimeFormatter: DateFormatter = {
+    let f = DateFormatter()
+    f.dateFormat = "HH:mm"
+    return f
+}()
+
+private let historyAbsoluteFormatter: DateFormatter = {
+    let f = DateFormatter()
+    f.dateStyle = .short
+    f.timeStyle = .short
+    f.locale = .current
+    return f
+}()
+
+func historyDateLabel(from date: Date, absolute: Bool = false) -> String {
+    if absolute {
+        return historyAbsoluteFormatter.string(from: date)
+    }
+    let cal = Calendar.current
+    let now = Date()
+    if cal.isDateInToday(date) {
+        return "Today \(historyTimeFormatter.string(from: date))"
+    }
+    if cal.isDateInYesterday(date) {
+        return "Yesterday \(historyTimeFormatter.string(from: date))"
+    }
+    let days = cal.dateComponents([.day], from: cal.startOfDay(for: date), to: cal.startOfDay(for: now)).day ?? 0
+    if days <= 7 {
+        return "\(days) days ago"
+    }
+    if days <= 30 {
+        let weeks = days / 7
+        return weeks == 1 ? "1 week ago" : "\(weeks) weeks ago"
+    }
+    let months = cal.dateComponents([.month], from: date, to: now).month ?? 0
+    if months <= 12 {
+        return months == 1 ? "1 month ago" : "\(months) months ago"
+    }
+    let years = cal.dateComponents([.year], from: date, to: now).year ?? 0
+    return years == 1 ? "1 year ago" : "\(years) years ago"
+}
+
+func historyMigrateLabel(_ label: String) -> String {
+    let map: [String: String] = [
+        "sel": "Selection",
+        "full": "Screen",
+        "win": "Window",
+        "app": "Window"
+    ]
+    let lower = label.lowercased()
+    if let mapped = map[lower] { return mapped }
+    let prefixes = ["Selection", "Screen", "Window", "App"]
+    for prefix in prefixes {
+        if label == prefix { return prefix == "App" ? "Window" : prefix }
+        if label.hasPrefix(prefix + "-") {
+            return prefix == "App" ? "Window" : prefix
+        }
+    }
+    return label
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -211,11 +276,21 @@ func applicationDidFinishLaunching(_ notification: Notification) {
 
         if !CaptureController.history.isEmpty {
             for item in CaptureController.history.reversed() {
-                let mi = NSMenuItem(title: item.label, action: #selector(openHistoryItem(_:)), keyEquivalent: "")
+                let baseTitle = "\(item.label) • \(historyDateLabel(from: item.date))"
+                let mi = NSMenuItem(title: baseTitle, action: #selector(openHistoryItem(_:)), keyEquivalent: "")
                 mi.target = self
                 mi.representedObject = item
-                mi.image = menuThumbnail(from: item.image, maxDimension: 24)
+                mi.image = menuThumbnail(from: item.image, maxDimension: 36)
                 menu.addItem(mi)
+
+                let altTitle = "\(item.label) • \(historyDateLabel(from: item.date, absolute: true))"
+                let altMi = NSMenuItem(title: altTitle, action: #selector(openHistoryItem(_:)), keyEquivalent: "")
+                altMi.target = self
+                altMi.representedObject = item
+                altMi.image = menuThumbnail(from: item.image, maxDimension: 36)
+                altMi.isAlternate = true
+                altMi.keyEquivalentModifierMask = .option
+                menu.addItem(altMi)
             }
             menu.addItem(.separator())
             let clearItem = NSMenuItem(title: "Clear History", action: #selector(clearHistoryFromMenu), keyEquivalent: "")
@@ -357,21 +432,31 @@ final class CaptureController: NSObject {
     static func loadHistory() {
         history.removeAll()
         guard let data = try? Data(contentsOf: metadataFile),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [[String: String]]
+              let json = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]]
         else { return }
+        let iso = ISO8601DateFormatter()
         for entry in json {
-            guard let label = entry["label"], let filename = entry["filename"] else { continue }
+            guard let label = entry["label"] as? String, let filename = entry["filename"] as? String else { continue }
             let url = historyDir.appendingPathComponent(filename)
             guard let imgData = try? Data(contentsOf: url),
                   let image = NSImage(data: imgData)
             else { continue }
-            let item = CaptureHistoryItem(image: image, label: label)
+            var date = Date()
+            if let dateStr = entry["date"] as? String, let d = iso.date(from: dateStr) {
+                date = d
+            } else if let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+                      let mtime = attrs[.modificationDate] as? Date {
+                date = mtime
+            }
+            let cleanLabel = historyMigrateLabel(label)
+            let item = CaptureHistoryItem(image: image, label: cleanLabel, date: date)
             item.filename = filename
             history.append(item)
         }
     }
 
-    static func addToHistory(image: NSImage, label: String, filename: String) {
+    @discardableResult
+    static func addToHistory(image: NSImage, label: String, filename: String) -> CaptureHistoryItem {
         let item = CaptureHistoryItem(image: image, label: label)
         item.filename = filename
         let url = historyDir.appendingPathComponent(item.filename)
@@ -387,17 +472,21 @@ final class CaptureController: NSObject {
         }
         rewriteMetadata()
         (NSApp.delegate as? AppDelegate)?.rebuildMenu()
+        return item
     }
 
-    static func updateLastHistory(image newImage: NSImage) {
-        guard let item = history.last else { return }
+    static func update(_ item: CaptureHistoryItem, image newImage: NSImage) {
         item.image = newImage
         if let data = newImage.tiffRepresentation,
            let rep = NSBitmapImageRep(data: data),
            let pngData = rep.representation(using: .png, properties: [:]) {
             try? pngData.write(to: historyDir.appendingPathComponent(item.filename))
-            try? pngData.write(to: shared.capturesDir.appendingPathComponent(item.filename))
+            let saved = shared.capturesDir.appendingPathComponent(item.filename)
+            if FileManager.default.fileExists(atPath: saved.path) {
+                try? pngData.write(to: saved)
+            }
         }
+        (NSApp.delegate as? AppDelegate)?.rebuildMenu()
     }
 
     static var isClearing = false
@@ -416,24 +505,23 @@ final class CaptureController: NSObject {
     }
 
     private static func rewriteMetadata() {
-        var json: [[String: String]] = []
+        var json: [[String: Any]] = []
         for item in history {
-            json.append(["label": item.label, "filename": item.filename])
+            json.append([
+                "label": item.label,
+                "filename": item.filename,
+                "date": ISO8601DateFormatter().string(from: item.date)
+            ])
         }
         if let data = try? JSONSerialization.data(withJSONObject: json) {
             try? data.write(to: metadataFile)
         }
     }
 
-    static let dateFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.dateFormat = "yyyy-MM-dd HH:mm:ss"
-        return f
-    }()
-
     func showHistoryItem(_ item: CaptureHistoryItem) {
         let url = capturesDir.appendingPathComponent(item.filename)
         let ctrl = CaptureWindowController(image: item.image, fileURL: url)
+        ctrl.historyItem = item
         ctrl.window?.center()
         captureWindowControllers.append(ctrl)
         ctrl.showWindow(nil)
@@ -447,14 +535,24 @@ final class CaptureController: NSObject {
     var captureWindowControllers: [CaptureWindowController] = []
     var onCaptureStateChange: ((Bool) -> Void)?
     private var currentPrefix = ""
+    private var currentLabel = ""
 
     func beginCapture() {
         currentPrefix = "sel"
-        runScreencapture()
+        currentLabel = "Selection"
+        SelectionCaptureController.shared.start { [weak self] image in
+            guard let self = self else { return }
+            if let image = image {
+                self.saveAndShow(image: image)
+            } else {
+                self.onCaptureStateChange?(false)
+            }
+        }
     }
 
     func beginFullScreenCapture() {
         currentPrefix = "full"
+        currentLabel = "Screen"
         let tempFile = FileManager.default.temporaryDirectory
             .appendingPathComponent("dotmenu_\(UUID().uuidString).png")
 
@@ -482,38 +580,13 @@ final class CaptureController: NSObject {
 
     func beginWindowCapture() {
         currentPrefix = "win"
+        currentLabel = "Window"
         let tempFile = FileManager.default.temporaryDirectory
             .appendingPathComponent("dotmenu_\(UUID().uuidString).png")
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
         process.arguments = ["-W", tempFile.path]
-
-        process.terminationHandler = { [weak self] p in
-            guard p.terminationStatus == 0,
-                  let image = NSImage(contentsOf: tempFile)
-            else {
-                try? FileManager.default.removeItem(at: tempFile)
-                DispatchQueue.main.async { self?.onCaptureStateChange?(false) }
-                return
-            }
-            try? FileManager.default.removeItem(at: tempFile)
-            DispatchQueue.main.async { self?.saveAndShow(image: image) }
-        }
-        do {
-            try process.run()
-        } catch {
-            onCaptureStateChange?(false)
-        }
-    }
-
-    private func runScreencapture() {
-        let tempFile = FileManager.default.temporaryDirectory
-            .appendingPathComponent("dotmenu_\(UUID().uuidString).png")
-
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
-        process.arguments = ["-i", tempFile.path]
 
         process.terminationHandler = { [weak self] p in
             guard p.terminationStatus == 0,
@@ -540,12 +613,14 @@ final class CaptureController: NSObject {
         formatter.dateFormat = "yyyy-MM-dd_HHmmss"
         let timestamp = formatter.string(from: Date())
         let prefix = currentPrefix
+        let label = currentLabel
         let filename = "\(prefix)-Capture_\(timestamp).png"
         let url = capturesDir.appendingPathComponent(filename)
 
-        CaptureController.addToHistory(image: image, label: "\(prefix)-\(CaptureController.dateFormatter.string(from: Date()))", filename: filename)
+        CaptureController.addToHistory(image: image, label: label, filename: filename)
 
         let controller = CaptureWindowController(image: image, fileURL: url)
+        controller.historyItem = CaptureController.history.last
         controller.window?.center()
         captureWindowControllers.append(controller)
         controller.showWindow(nil)
@@ -553,16 +628,264 @@ final class CaptureController: NSObject {
     }
 }
 
+// MARK: - Selection Capture (custom overlay, Shift-safe)
+
+/// Converts a selection in overlay-window coordinates to the global display-space
+/// rectangle `CGDisplayCreateImage` expects (Y grows down from the main screen's top).
+func displayRect(fromSelection rect: NSRect, windowOrigin: NSPoint, mainScreenHeight: CGFloat) -> CGRect {
+    let global = NSRect(
+        x: rect.origin.x + windowOrigin.x,
+        y: rect.origin.y + windowOrigin.y,
+        width: rect.width,
+        height: rect.height
+    )
+    return CGRect(x: global.origin.x, y: mainScreenHeight - global.maxY, width: global.width, height: global.height)
+}
+
+final class SelectionCaptureController: NSObject {
+    static let shared = SelectionCaptureController()
+    private var window: NSWindow?
+    private var startPoint: NSPoint?
+    private var currentPoint: NSPoint?
+    private var onComplete: ((NSImage?) -> Void)?
+
+    func start(onComplete: @escaping (NSImage?) -> Void) {
+        self.onComplete = onComplete
+        guard let screen = NSScreen.main else {
+            onComplete(nil)
+            return
+        }
+        let frame = screen.frame
+        let win = NSWindow(contentRect: frame, styleMask: .borderless, backing: .buffered, defer: false)
+        win.level = .screenSaver
+        win.isOpaque = false
+        win.backgroundColor = .clear
+        win.ignoresMouseEvents = false
+        win.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
+        win.acceptsMouseMovedEvents = true
+        let view = SelectionCaptureView(frame: frame)
+        view.controller = self
+        win.contentView = view
+        win.makeKeyAndOrderFront(nil)
+        DispatchQueue.main.async {
+            view.window?.makeFirstResponder(view)
+        }
+        window = win
+        NSCursor.hide()
+    }
+
+    fileprivate func setStart(_ p: NSPoint) {
+        startPoint = p
+        currentPoint = p
+        window?.contentView?.needsDisplay = true
+    }
+
+    fileprivate func updateCurrent(_ p: NSPoint) {
+        updateDrag(p, constrainSquare: false)
+    }
+
+    fileprivate func updateDrag(_ p: NSPoint, constrainSquare: Bool) {
+        if constrainSquare, let start = startPoint {
+            let dx = abs(p.x - start.x)
+            let dy = abs(p.y - start.y)
+            let size = max(dx, dy)
+            let signX: CGFloat = p.x >= start.x ? 1 : -1
+            let signY: CGFloat = p.y >= start.y ? 1 : -1
+            currentPoint = NSPoint(x: start.x + signX * size, y: start.y + signY * size)
+        } else {
+            currentPoint = p
+        }
+        window?.contentView?.needsDisplay = true
+    }
+
+    fileprivate func currentRect() -> NSRect? {
+        guard let start = startPoint, let end = currentPoint else { return nil }
+        return NSRect(
+            x: min(start.x, end.x),
+            y: min(start.y, end.y),
+            width: abs(end.x - start.x),
+            height: abs(end.y - start.y)
+        )
+    }
+
+    fileprivate func cancel() {
+        finish(with: nil)
+    }
+
+    fileprivate func performCapture() {
+        guard let rect = currentRect() else {
+            finish(with: nil)
+            return
+        }
+        if rect.width < 5 || rect.height < 5 {
+            finish(with: nil)
+            return
+        }
+        guard let screen = window?.screen ?? NSScreen.main else {
+            finish(with: nil)
+            return
+        }
+        // rect is in window coordinates; the overlay window sits at the screen's origin.
+        let windowOrigin = window?.frame.origin ?? .zero
+        let mainHeight = NSScreen.screens.first?.frame.height ?? screen.frame.height
+        let cgRect = displayRect(fromSelection: rect, windowOrigin: windowOrigin, mainScreenHeight: mainHeight)
+        let displayID = (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value
+            ?? CGMainDisplayID()
+        guard let cgImage = CGDisplayCreateImage(displayID, rect: cgRect) else {
+            finish(with: nil)
+            return
+        }
+        let image = NSImage(cgImage: cgImage, size: rect.size)
+        finish(with: image)
+    }
+
+    private func finish(with image: NSImage?) {
+        NSCursor.unhide()
+        window?.orderOut(nil)
+        window = nil
+        startPoint = nil
+        currentPoint = nil
+        let cb = onComplete
+        onComplete = nil
+        cb?(image)
+    }
+}
+
+final class SelectionCaptureView: NSView {
+    weak var controller: SelectionCaptureController?
+    private var currentMouseLocation: NSPoint = .zero
+
+    override var acceptsFirstResponder: Bool { true }
+    override var canBecomeKeyView: Bool { true }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        for area in trackingAreas { removeTrackingArea(area) }
+        let area = NSTrackingArea(
+            rect: bounds,
+            options: [.mouseMoved, .activeInKeyWindow, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(area)
+    }
+
+    override func keyDown(with event: NSEvent) {
+        if event.keyCode == 53 {
+            controller?.cancel()
+        }
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        currentMouseLocation = convert(event.locationInWindow, from: nil)
+        needsDisplay = true
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        let p = convert(event.locationInWindow, from: nil)
+        currentMouseLocation = p
+        controller?.setStart(p)
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        let p = convert(event.locationInWindow, from: nil)
+        currentMouseLocation = p
+        let constrain = event.modifierFlags.contains(.shift)
+        controller?.updateDrag(p, constrainSquare: constrain)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        let p = convert(event.locationInWindow, from: nil)
+        currentMouseLocation = p
+        let constrain = event.modifierFlags.contains(.shift)
+        controller?.updateDrag(p, constrainSquare: constrain)
+        controller?.performCapture()
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        NSColor.black.withAlphaComponent(0.35).setFill()
+        bounds.fill()
+        drawCrosshair(at: currentMouseLocation)
+        guard let rect = controller?.currentRect(), rect.width > 1, rect.height > 1 else { return }
+        NSColor.clear.setFill()
+        rect.fill(using: .clear)
+        let path = NSBezierPath(rect: rect)
+        path.lineWidth = 1
+        NSColor.white.setStroke()
+        path.setLineDash([4, 4], count: 2, phase: 0)
+        path.stroke()
+        let dimText = "\(Int(rect.width)) × \(Int(rect.height))"
+        let attrs: [NSAttributedString.Key: Any] = [
+            .foregroundColor: NSColor.white,
+            .font: NSFont.monospacedSystemFont(ofSize: 12, weight: .medium)
+        ]
+        let textSize = (dimText as NSString).size(withAttributes: attrs)
+        var textOrigin = NSPoint(x: rect.origin.x + 4, y: rect.origin.y - textSize.height - 4)
+        if textOrigin.y < 0 {
+            textOrigin.y = rect.origin.y + 4
+        }
+        if textOrigin.x + textSize.width > bounds.width {
+            textOrigin.x = bounds.width - textSize.width - 4
+        }
+        (dimText as NSString).draw(at: textOrigin, withAttributes: attrs)
+    }
+
+    private func drawCrosshair(at point: NSPoint) {
+        let arm: CGFloat = 16
+        let gap: CGFloat = 5
+        let thickness: CGFloat = 1
+        let outline = NSBezierPath()
+        outline.lineWidth = thickness + 2
+        outline.lineCapStyle = .butt
+        outline.move(to: NSPoint(x: point.x - arm, y: point.y))
+        outline.line(to: NSPoint(x: point.x - gap, y: point.y))
+        outline.move(to: NSPoint(x: point.x + gap, y: point.y))
+        outline.line(to: NSPoint(x: point.x + arm, y: point.y))
+        outline.move(to: NSPoint(x: point.x, y: point.y - arm))
+        outline.line(to: NSPoint(x: point.x, y: point.y - gap))
+        outline.move(to: NSPoint(x: point.x, y: point.y + gap))
+        outline.line(to: NSPoint(x: point.x, y: point.y + arm))
+        NSColor.black.setStroke()
+        outline.stroke()
+        let inner = NSBezierPath()
+        inner.lineWidth = thickness
+        inner.lineCapStyle = .butt
+        inner.move(to: NSPoint(x: point.x - arm, y: point.y))
+        inner.line(to: NSPoint(x: point.x - gap, y: point.y))
+        inner.move(to: NSPoint(x: point.x + gap, y: point.y))
+        inner.line(to: NSPoint(x: point.x + arm, y: point.y))
+        inner.move(to: NSPoint(x: point.x, y: point.y - arm))
+        inner.line(to: NSPoint(x: point.x, y: point.y - gap))
+        inner.move(to: NSPoint(x: point.x, y: point.y + gap))
+        inner.line(to: NSPoint(x: point.x, y: point.y + arm))
+        NSColor.white.setStroke()
+        inner.stroke()
+    }
+}
+
 // MARK: - Shape model
 
 struct Shape {
-    enum Kind { case rect, circle, line, arrow }
+    enum Kind { case rect, circle, line, arrow, text }
     let kind: Kind
     let start: NSPoint
     var end: NSPoint
     let color: NSColor
     let lineWidth: CGFloat
     let fill: Bool
+    let text: String
+    let fontSize: CGFloat
+
+    init(kind: Kind, start: NSPoint, end: NSPoint, color: NSColor, lineWidth: CGFloat, fill: Bool, text: String = "", fontSize: CGFloat = 16) {
+        self.kind = kind
+        self.start = start
+        self.end = end
+        self.color = color
+        self.lineWidth = lineWidth
+        self.fill = fill
+        self.text = text
+        self.fontSize = fontSize
+    }
 }
 
 // MARK: - Drawing Overlay View
@@ -593,6 +916,30 @@ final class DrawingOverlayView: NSView {
     override func mouseDown(with event: NSEvent) {
         guard let tool = activeTool else { return }
         let pt = convert(event.locationInWindow, from: nil)
+
+        if tool == .text {
+            activeTool = nil
+            NSCursor.arrow.set()
+            onToolConsumed?()
+
+            let alert = NSAlert()
+            alert.messageText = "Enter text"
+            alert.addButton(withTitle: "OK")
+            alert.addButton(withTitle: "Cancel")
+            let textField = NSTextField(frame: NSRect(x: 0, y: 0, width: 200, height: 24))
+            alert.accessoryView = textField
+            alert.window.initialFirstResponder = textField
+            guard alert.runModal() == .alertFirstButtonReturn else { return }
+            let text = textField.stringValue
+            guard !text.isEmpty else { return }
+
+            let s = Shape(kind: .text, start: pt, end: pt, color: shapeColor, lineWidth: shapeLineWidth, fill: shapeFill, text: text, fontSize: 16)
+            shapes.append(s)
+            onShapeFinished?(s)
+            needsDisplay = true
+            return
+        }
+
         let s = Shape(kind: tool, start: pt, end: pt, color: shapeColor, lineWidth: shapeLineWidth, fill: shapeFill)
         inProgress = s
         activeTool = nil
@@ -612,9 +959,12 @@ final class DrawingOverlayView: NSView {
         guard var s = inProgress else { return }
         s.end = convert(event.locationInWindow, from: nil)
         constrainAspectRatio(&s, event: event)
-        shapes.append(s)
         inProgress = nil
-        onShapeFinished?(s)
+        // A plain click without a drag would leave an invisible zero-size shape behind.
+        if abs(s.end.x - s.start.x) >= 2 || abs(s.end.y - s.start.y) >= 2 {
+            shapes.append(s)
+            onShapeFinished?(s)
+        }
         needsDisplay = true
     }
 
@@ -662,6 +1012,12 @@ final class DrawingOverlayView: NSView {
             path.stroke()
         case .arrow:
             drawArrowShape(s)
+        case .text:
+            let attrs: [NSAttributedString.Key: Any] = [
+                .font: NSFont.systemFont(ofSize: s.fontSize),
+                .foregroundColor: s.color,
+            ]
+            (s.text as NSString).draw(at: s.start, withAttributes: attrs)
         }
     }
 
@@ -754,7 +1110,7 @@ final class PaletteExtractor {
 }
 
 final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWindowDelegate {
-    private let image: NSImage
+    private var image: NSImage
     private let fileURL: URL
     private let toastLabel: NSTextField
     private let overlayView: DrawingOverlayView
@@ -765,8 +1121,12 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
     private var circleItem: NSToolbarItem!
     private var lineItem: NSToolbarItem!
     private var arrowItem: NSToolbarItem!
+    private var textItem: NSToolbarItem!
     private var undoItem: NSToolbarItem!
     private var undoBtn: NSButton!
+    private var resizePopUp: NSPopUpButton!
+    private var imageView: NSImageView!
+    private var imageUndoStack: [NSImage] = []
     private var colorItem: NSToolbarItem!
     private var fillItem: NSToolbarItem!
     private var widthItem: NSToolbarItem!
@@ -778,6 +1138,7 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
     private var keyMonitor: Any?
     private let colorWell: NSColorWell
     private weak var activeToolItem: NSToolbarItem?
+    var historyItem: CaptureHistoryItem?
 
     init(image: NSImage, fileURL: URL) {
         self.image = image
@@ -791,6 +1152,7 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
         )
 
         let imageView = NSImageView(image: image)
+        self.imageView = imageView
         imageView.imageScaling = .scaleProportionallyUpOrDown
         imageView.frame = NSRect(origin: .zero, size: imageSize)
         imageView.autoresizingMask = [.width, .height]
@@ -900,6 +1262,13 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
         circleItem.action = #selector(beginTool)
         circleItem.isEnabled = true
 
+        textItem = NSToolbarItem(itemIdentifier: NSToolbarItem.Identifier("textItem"))
+        textItem.label = "Text"
+        textItem.image = NSImage(systemSymbolName: "textformat", accessibilityDescription: "Add text")
+        textItem.target = self
+        textItem.action = #selector(beginTool)
+        textItem.isEnabled = true
+
         undoItem = NSToolbarItem(itemIdentifier: NSToolbarItem.Identifier("undoItem"))
         undoItem.label = "Undo"
         undoItem.image = NSImage(systemSymbolName: "arrow.uturn.backward", accessibilityDescription: "Undo")
@@ -966,9 +1335,25 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
         undoBtn = makeBtn("arrow.uturn.backward", "Undo", #selector(undoShape))
         undoBtn.setButtonType(.momentaryLight)
 
+        resizePopUp = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 44, height: 32), pullsDown: true)
+        resizePopUp.bezelStyle = .texturedRounded
+        resizePopUp.toolTip = "Resize"
+        resizePopUp.target = self
+        resizePopUp.action = #selector(resizeImage(_:))
+        let dummy = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+        dummy.image = NSImage(systemSymbolName: "arrow.up.arrow.down.circle", accessibilityDescription: "Resize")?
+            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 15, weight: .regular))
+        resizePopUp.menu?.addItem(dummy)
+        for (pct, value) in [("80%", 0.8), ("50%", 0.5), ("25%", 0.25), ("10%", 0.1)] {
+            let item = NSMenuItem(title: pct, action: #selector(resizeImage(_:)), keyEquivalent: "")
+            item.representedObject = value
+            item.target = self
+            resizePopUp.menu?.addItem(item)
+        }
+
         let allControls = NSStackView(views: [
             drawStack, colorWell, fillBtn, widthPopUp,
-            undoBtn,
+            resizePopUp, undoBtn,
         ])
         allControls.orientation = .horizontal
         allControls.spacing = 6
@@ -1009,6 +1394,7 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
             if !cmd && chars == "c" { self.beginTool(self.circleItem); return nil }
             if !cmd && chars == "l" { self.beginTool(self.lineItem); return nil }
             if !cmd && chars == "a" { self.beginTool(self.arrowItem); return nil }
+            if !cmd && chars == "t" { self.beginTool(self.textItem); return nil }
             if !cmd && event.keyCode == 36 { self.copyImage(); return nil }
             return event
         }
@@ -1044,9 +1430,13 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
 
     func windowWillClose(_ notification: Notification) {
         NSColorPanel.shared.orderOut(nil)
-        if !CaptureController.isClearing && !overlayView.shapes.isEmpty {
-            let img = compositedImage()
-            CaptureController.updateLastHistory(image: img)
+        if let monitor = keyMonitor {
+            NSEvent.removeMonitor(monitor)
+            keyMonitor = nil
+        }
+        CaptureController.shared.captureWindowControllers.removeAll { $0 === self }
+        if !CaptureController.isClearing, let item = historyItem, !overlayView.shapes.isEmpty {
+            CaptureController.update(item, image: compositedImage())
         }
         let hasOtherWindows = NSApp.windows.contains { w in
             w != window && w.isVisible
@@ -1086,7 +1476,6 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
             return
         }
 
-        let hexes = colors.map { $0.hexString }
         let stack = NSStackView()
         stack.orientation = .vertical
         stack.spacing = 0
@@ -1137,14 +1526,20 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
         jsonBtn.contentTintColor = .systemBlue
         jsonBtn.action = #selector(copyPaletteJson)
         jsonBtn.target = self
-        stack.addArrangedSubview(jsonBtn)
 
         let cssBtn = NSButton(title: "Copy as CSS", target: self, action: #selector(copyPaletteCss))
         cssBtn.setButtonType(.momentaryPushIn)
         cssBtn.isBordered = false
         cssBtn.font = NSFont.systemFont(ofSize: 10)
         cssBtn.contentTintColor = .systemBlue
-        stack.addArrangedSubview(cssBtn)
+
+        let footer = NSStackView(views: [jsonBtn, cssBtn])
+        footer.orientation = .vertical
+        footer.spacing = 2
+        footer.alignment = .leading
+        footer.edgeInsets = NSEdgeInsets(top: 6, left: 8, bottom: 6, right: 8)
+        footer.widthAnchor.constraint(equalToConstant: 120).isActive = true
+        stack.addArrangedSubview(footer)
 
         let vc = NSViewController()
         vc.view = stack
@@ -1213,7 +1608,7 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
         if let item = sender as? NSToolbarItem { ti = item }
         else if let btn = sender as? NSButton {
             toolBtn = btn
-            let mapped = [rectItem, circleItem, lineItem, arrowItem]
+            let mapped = [rectItem, circleItem, lineItem, arrowItem, textItem]
             ti = btn.tag < mapped.count ? mapped[btn.tag] : nil
         } else { ti = nil }
         guard let t = ti else { return }
@@ -1233,6 +1628,10 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
             overlayView.activeTool = .arrow
             activeToolItem = arrowItem
             arrowItem.image = NSImage(systemSymbolName: "arrow.right.to.line", accessibilityDescription: "Draw arrow")
+        } else if t.itemIdentifier == textItem.itemIdentifier {
+            overlayView.activeTool = .text
+            activeToolItem = textItem
+            textItem.image = NSImage(systemSymbolName: "textformat.size", accessibilityDescription: "Add text")
         }
         toolBtn?.state = .on
     }
@@ -1247,6 +1646,8 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
                 lineItem.image = NSImage(systemSymbolName: "line.diagonal", accessibilityDescription: "Draw line")
             } else if item.itemIdentifier == arrowItem.itemIdentifier {
                 arrowItem.image = NSImage(systemSymbolName: "arrow.right", accessibilityDescription: "Draw arrow")
+            } else if item.itemIdentifier == textItem.itemIdentifier {
+                textItem.image = NSImage(systemSymbolName: "textformat", accessibilityDescription: "Add text")
             }
         }
         activeToolItem = nil
@@ -1255,10 +1656,59 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
     }
 
     @objc func undoShape() {
-        guard !overlayView.shapes.isEmpty else { return }
-        overlayView.shapes.removeLast()
+        if !overlayView.shapes.isEmpty {
+            overlayView.shapes.removeLast()
+            overlayView.needsDisplay = true
+            undoItem.isEnabled = !overlayView.shapes.isEmpty || !imageUndoStack.isEmpty
+            return
+        }
+        guard let prev = imageUndoStack.popLast() else { return }
+        let prevSize = prev.size
+        image = prev
+        imageView.image = prev
+        window?.setContentSize(prevSize)
+        imageView.frame = NSRect(origin: .zero, size: prevSize)
+        overlayView.frame = NSRect(origin: .zero, size: prevSize)
         overlayView.needsDisplay = true
-        undoItem.isEnabled = !overlayView.shapes.isEmpty
+        window?.title = "Capture  \(Int(prevSize.width))x\(Int(prevSize.height))"
+        undoItem.isEnabled = !imageUndoStack.isEmpty
+        showToast("Undo resize")
+    }
+
+    @objc private func resizeImage(_ sender: NSMenuItem) {
+        guard let scale = sender.representedObject as? Double, scale > 0 else { return }
+
+        let source: NSImage
+        if !overlayView.shapes.isEmpty {
+            source = compositedImage()
+        } else {
+            source = image
+        }
+
+        let newSize = NSSize(width: source.size.width * scale, height: source.size.height * scale)
+        let scaled = NSImage(size: newSize)
+        scaled.lockFocus()
+        source.draw(in: NSRect(origin: .zero, size: newSize))
+        scaled.unlockFocus()
+
+        imageUndoStack.append(image)
+        image = scaled
+        imageView.image = scaled
+        overlayView.shapes.removeAll()
+        overlayView.needsDisplay = true
+        undoItem.isEnabled = true
+
+        window?.setContentSize(newSize)
+        imageView.frame = NSRect(origin: .zero, size: newSize)
+        overlayView.frame = NSRect(origin: .zero, size: newSize)
+
+        let pct = Int(scale * 100)
+        window?.title = "Capture  \(Int(newSize.width))x\(Int(newSize.height))"
+        showToast("Resized to \(pct)%")
+
+        if let item = historyItem {
+            CaptureController.update(item, image: scaled)
+        }
     }
 
     private func compositedImage() -> NSImage {
@@ -1335,6 +1785,14 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
                 ahead.close()
                 s.color.setFill()
                 ahead.fill()
+            case .text:
+                let attrs: [NSAttributedString.Key: Any] = [
+                    .font: NSFont.systemFont(ofSize: s.fontSize * sx),
+                    .foregroundColor: s.color,
+                ]
+                // The overlay view is flipped (text hangs below the click); this context is not.
+                let textHeight = (s.text as NSString).size(withAttributes: attrs).height
+                (s.text as NSString).draw(at: NSPoint(x: start.x, y: start.y - textHeight), withAttributes: attrs)
             }
         }
         img.unlockFocus()
@@ -1342,11 +1800,12 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
     }
 
     private func savePNG(_ img: NSImage, to url: URL) throws {
-        if let data = img.tiffRepresentation,
-           let rep = NSBitmapImageRep(data: data),
-           let pngData = rep.representation(using: .png, properties: [:]) {
-            try pngData.write(to: url)
+        guard let data = img.tiffRepresentation,
+              let rep = NSBitmapImageRep(data: data),
+              let pngData = rep.representation(using: .png, properties: [:]) else {
+            throw CocoaError(.fileWriteUnknown)
         }
+        try pngData.write(to: url)
     }
 
     @objc func copyImage() {
@@ -1359,15 +1818,17 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
             pb.writeObjects([item])
         }
         showToast("Copied to pasteboard")
-        NSSound(named: "Tink")?.play()
+        NSSound(named: "Pop")?.play()
     }
 
     @objc func saveImage() {
         do {
             try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
             try savePNG(compositedImage(), to: fileURL)
-        } catch {}
-        showToast("Saved to ~/Pictures/DotMenu")
+            showToast("Saved to ~/Pictures/DotMenu")
+        } catch {
+            showToast("Save failed: \(error.localizedDescription)")
+        }
     }
 
     @objc func saveAsImage() {
@@ -1379,8 +1840,10 @@ final class CaptureWindowController: NSWindowController, NSToolbarDelegate, NSWi
         guard panel.runModal() == .OK, let url = panel.url else { return }
         do {
             try savePNG(compositedImage(), to: url)
-        } catch {}
-        showToast("Saved")
+            showToast("Saved")
+        } catch {
+            showToast("Save failed: \(error.localizedDescription)")
+        }
     }
 
     private func showToast(_ message: String) {
@@ -1496,4 +1959,8 @@ let app = NSApplication.shared
 let delegate = AppDelegate()
 app.delegate = delegate
 app.setActivationPolicy(.accessory)
+#if DOTMENU_TESTS
+exit(runTests())
+#else
 app.run()
+#endif

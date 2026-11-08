@@ -14,17 +14,18 @@ A macOS menu bar screen capture utility with drawing tools. Click the dashed-squ
 
 ## Features
 
-- **Capture modes** — Selection (interactive crosshair), Full screen, Foremost window
-- **Drawing tools** — Rectangle, Circle, Line, Arrow with color picker, Fill toggle, and line width selector
-- **Larger toolbar buttons** — 36×28 buttons in the drawing bar for easier clicking
+- **Capture modes** — Selection (custom overlay with crosshair), Full screen, Foremost window
+- **Drawing tools** — Rectangle, Circle, Line, Arrow, Text with color picker, Fill toggle, and line width selector
+- **Larger toolbar buttons** — 44×32 buttons in the drawing bar for easier clicking
 - **Filled arrowhead** — arrow tip rendered as a filled triangle, shaft meets precisely at the base
-- **Copy to pasteboard** — copies the annotated image (Cmd+C, Enter, or toolbar button)
+- **Copy to pasteboard** — copies the annotated image (Cmd+C, Enter, or toolbar button) with a short system sound
 - **Save to disk** — saves PNG to `~/Pictures/DotMenu/` with prefix (`sel-`, `full-`, `win-`) (Cmd+S); Save As… for custom location
-- **Undo** — removes the last drawn shape (Cmd+Z)
-- **Extract palette** — K-Means clustering on the original image, popover with 5 dominant colors, click to set drawing color + copy hex
-- **Keyboard shortcuts** when capture window is active: R (Rectangle), C (Circle), L (Line), A (Arrow)
+- **Undo** — removes the last drawn shape, then the last resize (Cmd+Z)
+- **Resize** — 80% / 50% / 25% / 10% from the toolbar, reversible with Undo
+- **Extract palette** — K-Means clustering on the original image, popover with 5 dominant colors, click to set drawing color + copy hex; copy the palette as JSON or CSS
+- **Keyboard shortcuts** when capture window is active: R (Rectangle), C (Circle), L (Line), A (Arrow), T (Text)
 - **Global hotkeys** — Cmd+Shift+7 (selection), Cmd+Shift+! (full screen), Cmd+Shift+ç (window) via Carbon `RegisterEventHotKey` (configurable in Preferences)
-- **Capture history** — last 10 captures persisted to disk; accessible from the menu bar; includes final annotated version
+- **Capture history** — last 10 captures persisted to disk; menu bar entries show the annotated thumbnail and a relative date (`Today 14:03`, `3 days ago`), hold **Option** for the absolute date
 - **Menu bar** — File (New Capture, Close, Close All, Save, Save As, Preferences) and Edit (Undo, Copy) menus appear when a window is active
 - **Automatic activation** — app appears in the Dock when a capture window is open, menu-bar-only when closed
 - **Permission guided** — denied Screen Capture access opens System Settings automatically
@@ -40,9 +41,26 @@ Builds `DotMenu.app`, copies it to `/Applications`, and launches it. The app is 
 | Command       | Effect                                     |
 |---------------|--------------------------------------------|
 | `make build`  | Build `DotMenu.app` in the project root    |
+| `make test`   | Run the assert-based self-checks           |
 | `make dmg`    | Build and package into `DotMenu.dmg`       |
 | `make run`    | Build and launch from the project root     |
 | `make clean`  | Remove build artifacts and generated files |
+
+## Tests
+
+```sh
+make test
+```
+
+`src/Tests.swift` holds a plain assert-style runner (no XCTest, no Xcode project). The `make test` build compiles the app sources with `-D DOTMENU_TESTS`, which replaces `app.run()` with the test entrypoint, so nothing is launched and nothing ships in the release binary.
+
+```
+ok   selection at screen top maps to display top
+...
+23/23 checks passed
+```
+
+Covered: selection → display-rect conversion (including a secondary screen above the main one), history date labels (today → years), legacy history label migration, color hex/luminance helpers, palette extraction on a uniform image. The runner exits non-zero on failure, so it drops straight into CI. UI, window and file-IO behaviour are still verified by hand.
 
 ## First-time setup
 
@@ -56,11 +74,12 @@ Builds `DotMenu.app`, copies it to `/Applications`, and launches it. The app is 
 ## Usage tips
 
 - Hold **Shift** while dragging to constrain Rectangle/Circle to a perfect square/circle
-- Hold **Shift** while dragging an Arrow to constrain its angle
+- **Text** tool: press T (or the toolbar item), click where the text belongs, type, OK
 - **Palette** button extracts 5 dominant colors from the image — click a swatch to set drawing color + copy hex
 - **File prefixes**: `sel-` (selection), `full-` (full screen), `win-` (window) in `~/Pictures/DotMenu/`
 - Window size adapts to 85% of screen width for full captures
-- History appears in the menu bar; click to reopen last incarnation (with drawings)
+- History appears in the menu bar; click to reopen a capture with its drawings; hold **Option** for absolute dates
+- Selection capture covers the display the menu bar item was clicked on, one display at a time
 
 ## Version system
 
@@ -75,18 +94,22 @@ src/VersionGenerated.swift  # Auto-generated: `let appVersion = "000XX"`
 
 ```
 src/
-├── main.swift           # Single source file — AppKit + SwiftUI
+├── main.swift           # Single app source file — AppKit + SwiftUI
+├── Tests.swift          # Assert-based self-checks, `make test` only
 ├── Info.plist           # LSUIElement = true, CFBundleIdentifier = com.example.DotMenu
 ├── AppIcon.icns         # Finder icon
 ├── version.txt          # Build version counter
 └── VersionGenerated.swift   # Auto-generated, .gitignored
+
+build/
+└── dotmenu-tests        # Test binary, .gitignored
 
 docs/
 ├── index.html           # Website (GitHub Pages)
 ├── DotMenu.dmg          # Downloadable DMG
 └── example.jpeg         # Screenshot
 
-Makefile                 # Build, sign, install, launch, dmg
+Makefile                 # Build, sign, install, launch, test, dmg
 AGENTS.md                # Agent development notes
 README.md                # This file
 ```
@@ -96,15 +119,15 @@ README.md                # This file
 - **No Xcode project or Package.swift** — bare `swiftc` compilation
 - **No asset catalog** — the dashed-square icon is drawn at runtime with `NSBezierPath`
 - **No Dock icon by default** — `.accessory` activation policy, switches to `.regular` when a capture window is open
-- **Single source file** — `src/main.swift`, compiled with `-framework AppKit -framework SwiftUI`
+- **Single app source file** — `src/main.swift`, compiled with `-framework AppKit -framework SwiftUI`; `src/Tests.swift` is added only to the test build
 - **Code signing** — ad-hoc signed with `--requirements '=designated => identifier "com.example.DotMenu"'` for stable TCC tracking
 - **Global hotkeys** — Carbon `RegisterEventHotKey` for selection (id=1), full screen (id=2), window (id=3); stored in UserDefaults
 - **Screen Capture permission** — checked via `CGPreflightScreenCaptureAccess()` before each capture; denied → opens System Settings
-- **Capture engine** — `/usr/sbin/screencapture` via `Process` with `-i` (selection), no flag (full screen), or `-W` (window)
+- **Capture engine** — Selection uses a borderless full-screen overlay (`SelectionCaptureView`) and `CGDisplayCreateImage` with the selection flipped from Cocoa's bottom-left origin into display space; Full screen and Window shell out to `/usr/sbin/screencapture` (no flag / `-W`)
 - **Drawing overlay** — transparent `DrawingOverlayView` on top of `NSImageView`, tracks mouse events, renders with `NSBezierPath`
 - **Arrowhead** — filled polygon triangle, shaft shortened by `cos(π/6)` to meet the base precisely
 - **Palette extraction** — K-Means clustering on downsampled image (150px max), pure Swift implementation
-- **Composited export** — Copy/Save combine the original image + all shapes into a single PNG
-- **History persistence** — PNG + JSON in `~/Pictures/DotMenu/.history/`, same filename as capture file
+- **Composited export** — Copy/Save combine the original image + all shapes into a single PNG, remapping shape coordinates through the letterboxed image rect
+- **History persistence** — PNG + JSON (label, filename, ISO-8601 date) in `~/Pictures/DotMenu/.history/`, capped at 10 entries; each capture window keeps a reference to its own history item so annotating an old capture never overwrites a newer one
 
 
